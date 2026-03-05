@@ -1,65 +1,144 @@
-import Image from "next/image";
+'use client';
+
+import { useEffect, useState } from 'react';
+
+const API = process.env.NEXT_PUBLIC_API_URL || '';
+
+interface SystemState {
+  inverters?: Record<string, { connected: boolean; level?: number; power?: number }>;
+  valves?: Record<string, boolean>;
+  pumps?: Record<string, boolean>;
+  tanks?: Record<string, number>;
+}
 
 export default function Home() {
+  const [state, setState] = useState<SystemState>({});
+  const [connected, setConnected] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<string>('--');
+
+  useEffect(() => {
+    fetch(`${API}/api/system-state`)
+      .then(r => r.json())
+      .then(data => { setState(data); setConnected(true); })
+      .catch(() => setConnected(false));
+
+    const es = new EventSource(`${API}/api/sync`);
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setState(data);
+        setLastUpdate(new Date().toLocaleTimeString('ko-KR'));
+        setConnected(true);
+      } catch {}
+    };
+    es.onerror = () => setConnected(false);
+    return () => es.close();
+  }, []);
+
+  const sendCommand = async (command: string, target: string, value: boolean) => {
+    await fetch(`${API}/api/commands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command, target, value }),
+    }).catch(() => {});
+  };
+
+  const inverters = state.inverters ? Object.entries(state.inverters) : [];
+  const valves = state.valves ? Object.entries(state.valves) : [];
+  const pumps = state.pumps ? Object.entries(state.pumps) : [];
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="min-h-screen bg-gray-900 text-white p-4 max-w-md mx-auto">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-bold">D-nature 모니터</h1>
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`} />
+          <span className="text-xs text-gray-400">{connected ? '연결됨' : '연결 끊김'}</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      </div>
+
+      {/* 인버터 / 탱크 수위 */}
+      <section className="mb-6">
+        <h2 className="text-sm font-semibold text-gray-400 mb-3">인버터 상태</h2>
+        <div className="grid grid-cols-2 gap-3">
+          {inverters.length === 0 ? (
+            <div className="col-span-2 text-center text-gray-500 py-4">데이터 없음</div>
+          ) : inverters.map(([id, inv]) => (
+            <div key={id} className="bg-gray-800 rounded-xl p-3">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium">{id}</span>
+                <div className={`w-2 h-2 rounded-full ${inv.connected ? 'bg-green-400' : 'bg-gray-600'}`} />
+              </div>
+              {inv.level !== undefined && (
+                <>
+                  <div className="text-2xl font-bold">{inv.level}%</div>
+                  <div className="mt-2 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${inv.level > 70 ? 'bg-green-400' : inv.level > 30 ? 'bg-yellow-400' : 'bg-red-400'}`}
+                      style={{ width: `${inv.level}%` }}
+                    />
+                  </div>
+                </>
+              )}
+              {inv.power !== undefined && (
+                <div className="text-xs text-gray-400 mt-1">{inv.power}W</div>
+              )}
+            </div>
+          ))}
         </div>
-      </main>
-    </div>
+      </section>
+
+      {/* 펌프 제어 */}
+      {pumps.length > 0 && (
+        <section className="mb-6">
+          <h2 className="text-sm font-semibold text-gray-400 mb-3">펌프</h2>
+          <div className="space-y-2">
+            {pumps.map(([id, isOn]) => (
+              <div key={id} className="bg-gray-800 rounded-xl p-3 flex items-center justify-between">
+                <span className="text-sm">{id}</span>
+                <button
+                  onClick={() => sendCommand('pump', id, !isOn)}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${isOn ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-600 hover:bg-gray-500'}`}
+                >
+                  {isOn ? 'ON' : 'OFF'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 밸브 제어 */}
+      {valves.length > 0 && (
+        <section className="mb-6">
+          <h2 className="text-sm font-semibold text-gray-400 mb-3">밸브</h2>
+          <div className="space-y-2">
+            {valves.map(([id, isOpen]) => (
+              <div key={id} className="bg-gray-800 rounded-xl p-3 flex items-center justify-between">
+                <span className="text-sm">{id}</span>
+                <button
+                  onClick={() => sendCommand('valve', id, !isOpen)}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${isOpen ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-600 hover:bg-gray-500'}`}
+                >
+                  {isOpen ? '열림' : '닫힘'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {inverters.length === 0 && pumps.length === 0 && valves.length === 0 && connected && (
+        <div className="text-center text-gray-500 py-12">
+          <div className="text-4xl mb-3">📡</div>
+          <div>데이터 수신 대기 중...</div>
+        </div>
+      )}
+
+      <div className="text-center text-xs text-gray-600 mt-8">
+        마지막 업데이트: {lastUpdate}
+      </div>
+    </main>
   );
 }
