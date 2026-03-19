@@ -64,8 +64,13 @@ function InverterCard({ inv }: { inv: InverterState }) {
   )
 }
 
-// ── 부스터 카드 ─────────────────────────────────────────────────
-function BoosterCard({ booster }: { booster: BoosterState }) {
+// ── 부스터 카드 (ON/OFF 토글 버튼 포함) ────────────────────────
+interface BoosterCardProps {
+  booster: BoosterState
+  onToggle: (id: number, nextOn: boolean) => void
+}
+
+function BoosterCard({ booster, onToggle }: BoosterCardProps) {
   return (
     <div
       className={`flex items-center justify-between rounded-xl border px-3 py-2.5 ${
@@ -82,13 +87,17 @@ function BoosterCard({ booster }: { booster: BoosterState }) {
         />
         <span className="text-[11px] font-semibold text-slate-300">BST {booster.id}</span>
       </div>
-      <span
-        className={`text-[10px] font-bold ${
-          booster.isOn ? "text-blue-400" : "text-slate-500"
+      {/* ON/OFF 토글 버튼 */}
+      <button
+        onClick={() => onToggle(booster.id, !booster.isOn)}
+        className={`rounded-lg px-3 py-1 text-[10px] font-bold transition-colors active:scale-95 ${
+          booster.isOn
+            ? "bg-blue-600/80 text-white hover:bg-blue-700"
+            : "bg-slate-700 text-slate-400 hover:bg-slate-600"
         }`}
       >
         {booster.isOn ? "ON" : "OFF"}
-      </span>
+      </button>
     </div>
   )
 }
@@ -97,9 +106,10 @@ function BoosterCard({ booster }: { booster: BoosterState }) {
 interface PumpCardsProps {
   inverters: InverterState[]
   boosters: BoosterState[]
+  onBoosterToggle: (id: number, nextOn: boolean) => void
 }
 
-export default function PumpCards({ inverters, boosters }: PumpCardsProps) {
+export default function PumpCards({ inverters, boosters, onBoosterToggle }: PumpCardsProps) {
   return (
     <div className="space-y-2.5">
       {/* 섹션 헤더 */}
@@ -121,7 +131,7 @@ export default function PumpCards({ inverters, boosters }: PumpCardsProps) {
         </p>
         <div className="grid grid-cols-2 gap-2">
           {boosters.map((b) => (
-            <BoosterCard key={b.id} booster={b} />
+            <BoosterCard key={b.id} booster={b} onToggle={onBoosterToggle} />
           ))}
         </div>
       </div>

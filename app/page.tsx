@@ -358,6 +358,14 @@ export default function MobileFinalPage() {
     return () => { mounted = false }
   }, [handleMessage])
 
+  // ── 부스터 펌프 ON/OFF 토글 ─────────────────────────────────
+  const handleBoosterToggle = useCallback((id: number, nextOn: boolean) => {
+    const client = mqttRef.current
+    if (!client) return
+    const topic = `dnature/factory/zone1/pump/booster${id}/command`
+    client.publish(topic, JSON.stringify({ power: nextOn ? "ON" : "OFF" }))
+  }, [])
+
   // ── 긴급정지 ────────────────────────────────────────────────
   // ControlBar 홀드 3초 완료 시 직접 호출됨 (모달 없음)
   const handleEmergencyConfirm = useCallback(() => {
@@ -415,6 +423,7 @@ export default function MobileFinalPage() {
         <PumpCards
           inverters={state.inverters}
           boosters={state.boosters}
+          onBoosterToggle={handleBoosterToggle}
         />
 
       </main>
