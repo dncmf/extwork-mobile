@@ -1,0 +1,130 @@
+"use client"
+
+// mobile-final/PumpCards.tsx
+// 인버터 펌프 1~6 소형 카드 (2열 그리드) + 부스터 펌프 1~2
+
+import { InverterState, BoosterState } from "./types"
+
+// ── 수위 바 색상 ────────────────────────────────────────────────
+function levelColor(level: number): string {
+  if (level < 30) return "#ef4444"   // red-500
+  if (level < 70) return "#f59e0b"   // amber-400
+  return "#34d399"                   // emerald-400
+}
+
+// ── 인버터 카드 ─────────────────────────────────────────────────
+function InverterCard({ inv }: { inv: InverterState }) {
+  const isOn    = inv.pumpStatus === "ON"
+  const isError = inv.pumpStatus === "ERROR"
+  const barColor = isError ? "#ef4444" : levelColor(inv.tankLevel)
+
+  const borderCls = isError
+    ? "border-red-500/60"
+    : isOn
+    ? "border-emerald-500/40"
+    : "border-slate-700/50"
+
+  return (
+    <div
+      className={`rounded-xl border bg-slate-800/70 p-2.5 ${borderCls}`}
+      style={isOn ? { boxShadow: "0 0 8px rgba(52,211,153,0.12)" } : undefined}
+    >
+      {/* 헤더 */}
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-bold text-slate-200">INV {inv.id}</span>
+        <span
+          className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${
+            isError
+              ? "bg-red-900/60 text-red-400"
+              : isOn
+              ? "bg-emerald-900/50 text-emerald-400"
+              : "bg-slate-700 text-slate-500"
+          }`}
+        >
+          {isError ? "ERR" : isOn ? "ON" : "OFF"}
+        </span>
+      </div>
+
+      {/* 수위 바 */}
+      <div className="mb-1 h-2 w-full overflow-hidden rounded-full bg-slate-700">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${inv.tankLevel}%`, backgroundColor: barColor }}
+        />
+      </div>
+
+      {/* 수위 수치 */}
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] text-slate-500">수위</span>
+        <span className="font-mono text-[10px] font-semibold text-slate-300">
+          {inv.tankLevel.toFixed(0)}%
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ── 부스터 카드 ─────────────────────────────────────────────────
+function BoosterCard({ booster }: { booster: BoosterState }) {
+  return (
+    <div
+      className={`flex items-center justify-between rounded-xl border px-3 py-2.5 ${
+        booster.isOn
+          ? "border-blue-500/40 bg-slate-800/80"
+          : "border-slate-700/50 bg-slate-800/50"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className={`h-2 w-2 rounded-full ${
+            booster.isOn ? "animate-pulse bg-blue-400" : "bg-slate-600"
+          }`}
+        />
+        <span className="text-[11px] font-semibold text-slate-300">BST {booster.id}</span>
+      </div>
+      <span
+        className={`text-[10px] font-bold ${
+          booster.isOn ? "text-blue-400" : "text-slate-500"
+        }`}
+      >
+        {booster.isOn ? "ON" : "OFF"}
+      </span>
+    </div>
+  )
+}
+
+// ── 메인 컴포넌트 ────────────────────────────────────────────────
+interface PumpCardsProps {
+  inverters: InverterState[]
+  boosters: BoosterState[]
+}
+
+export default function PumpCards({ inverters, boosters }: PumpCardsProps) {
+  return (
+    <div className="space-y-2.5">
+      {/* 섹션 헤더 */}
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        Inverter Pump
+      </p>
+
+      {/* 인버터 2열 그리드 */}
+      <div className="grid grid-cols-2 gap-2">
+        {inverters.map((inv) => (
+          <InverterCard key={inv.id} inv={inv} />
+        ))}
+      </div>
+
+      {/* 부스터 2열 */}
+      <div>
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          Booster Pump
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {boosters.map((b) => (
+            <BoosterCard key={b.id} booster={b} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
