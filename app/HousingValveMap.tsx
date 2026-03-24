@@ -92,47 +92,61 @@ function Tank({ x, y, w, h, label, active }: {
   )
 }
 
-// 인버터 펌프 본탱크 미니 카드 (SVG 내부)
-function InvTankMini({ x, y, inv }: { x: number; y: number; inv: InverterState }) {
-  const W = 46, H = 38
+// 인버터 펌프 본탱크 — 실린더형 (SVG 내부)
+function InvTankCylinder({ x, y, inv }: { x: number; y: number; inv: InverterState }) {
+  const W = 42, bodyH = 36, ry = 5
   const isOn    = inv.pumpStatus === "ON"
   const isError = inv.pumpStatus === "ERROR"
   const lvl     = Math.min(100, Math.max(0, inv.tankLevel))
-  const fillH   = Math.round((H - 18) * lvl / 100)  // 수위 바 높이 (max 20px)
-  const barColor = isError ? "#ef4444" : lvl < 30 ? "#ef4444" : lvl < 70 ? "#f59e0b" : "#34d399"
-  const borderColor = isError ? "#ef4444" : isOn ? "#34d399" : "#475569"
+  const fillH   = Math.round(bodyH * lvl / 100)
+  const waterColor = isError ? "#ef4444" : lvl < 30 ? "#7f1d1d" : lvl < 70 ? "#78350f" : "#1e40af"
+  const strokeColor = isError ? "#ef4444" : isOn ? "#60a5fa" : "#334155"
+  const bodyY = y + ry * 2   // 상단 타원 공간 확보
+
+  const clipId = `clip-tank-${inv.id}`
 
   return (
     <g>
-      {/* 외곽 박스 */}
-      <rect x={x} y={y} width={W} height={H} rx={3}
-        fill="#0f172a" stroke={borderColor} strokeWidth={isOn ? 1.5 : 1} />
-      {/* 헤더 — 라벨 + 상태 점 */}
-      <text x={x + 4} y={y + 9} fontSize={7} fill="#94a3b8" fontFamily="monospace">
-        INP {inv.id}
-      </text>
-      <circle cx={x + W - 6} cy={y + 6} r={3}
-        fill={isError ? "#ef4444" : isOn ? "#34d399" : "#64748b"} />
-      {/* 구분선 */}
-      <line x1={x} y1={y + 13} x2={x + W} y2={y + 13} stroke="#1e293b" strokeWidth={1} />
-      {/* 수위 배경 */}
-      <rect x={x + 3} y={y + 16} width={W - 6} height={H - 20} rx={2} fill="#1e293b" />
-      {/* 수위 채움 */}
+      <defs>
+        <clipPath id={clipId}>
+          <rect x={x} y={bodyY} width={W} height={bodyH} />
+        </clipPath>
+      </defs>
+
+      {/* 탱크 몸통 배경 */}
+      <rect x={x} y={bodyY} width={W} height={bodyH}
+        fill="#0c1829" stroke={strokeColor} strokeWidth={1.2} />
+
+      {/* 수위 채움 (클립) */}
       {fillH > 0 && (
-        <rect
-          x={x + 3}
-          y={y + 16 + (H - 20) - fillH}
-          width={W - 6}
-          height={fillH}
-          rx={2}
-          fill={barColor}
-          opacity={0.7}
-        />
+        <rect x={x} y={bodyY + bodyH - fillH} width={W} height={fillH}
+          fill={waterColor} opacity={0.85} clipPath={`url(#${clipId})`} />
       )}
+
+      {/* 상단 타원 (뚜껑) */}
+      <ellipse cx={x + W / 2} cy={bodyY} rx={W / 2} ry={ry}
+        fill="#0c1829" stroke={strokeColor} strokeWidth={1.2} />
+
+      {/* 하단 타원 (바닥) */}
+      <ellipse cx={x + W / 2} cy={bodyY + bodyH} rx={W / 2} ry={ry}
+        fill={fillH > 0 ? waterColor : "#0c1829"}
+        stroke={strokeColor} strokeWidth={1.2} opacity={0.9} />
+
       {/* 수위 텍스트 */}
-      <text x={x + W / 2} y={y + H - 3} textAnchor="middle" fontSize={7} fill="#94a3b8" fontFamily="monospace">
+      <text x={x + W / 2} y={bodyY + bodyH / 2 + 3} textAnchor="middle"
+        fontSize={8} fill="#cbd5e1" fontFamily="monospace" fontWeight="bold">
         {lvl.toFixed(0)}%
       </text>
+
+      {/* 하단 라벨 */}
+      <text x={x + W / 2} y={bodyY + bodyH + ry * 2 + 7} textAnchor="middle"
+        fontSize={7.5} fill="#94a3b8" fontFamily="monospace">
+        {inv.id}번 탱크
+      </text>
+
+      {/* 펌프 상태 점 */}
+      <circle cx={x + W - 4} cy={y + 4} r={3}
+        fill={isError ? "#ef4444" : isOn ? "#34d399" : "#475569"} />
     </g>
   )
 }
@@ -181,7 +195,7 @@ export default function HousingValveMap({
         Housing Valve P&amp;ID
       </p>
 
-      <svg viewBox="0 0 320 320" className="w-full" style={{ maxHeight: 300 }}>
+      <svg viewBox="0 0 320 340" className="w-full" style={{ maxHeight: 340 }}>
         <defs>
           <style>{`@keyframes mf-dash { to { stroke-dashoffset: -20; } }`}</style>
         </defs>
@@ -240,15 +254,15 @@ export default function HousingValveMap({
         <ResinTankBox x={4}  y={197} label="1" elapsedSeconds={resinElapsedSeconds} />
         <ResinTankBox x={50} y={197} label="2" elapsedSeconds={resinElapsedSeconds} />
 
-        {/* INP 1~6 본탱크 수위 */}
+        {/* INP 1~6 본탱크 (실린더형) */}
         {inverters.length > 0 && (
           <g>
-            <text x={4} y={276} fontSize={7} fill="#475569" fontFamily="monospace">INP Tanks</text>
+            <text x={4} y={276} fontSize={7} fill="#475569" fontFamily="monospace">본탱크</text>
             {inverters.map((inv, i) => (
-              <InvTankMini
+              <InvTankCylinder
                 key={inv.id}
                 x={4 + i * 52}
-                y={280}
+                y={278}
                 inv={inv}
               />
             ))}
