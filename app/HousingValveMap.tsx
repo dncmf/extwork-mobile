@@ -1,15 +1,18 @@
 "use client"
 
 // HousingValveMap.tsx -- 하우징 밸브 P&ID
-// 2026-03-19: 수지탱크 1, 2 상자 추가 (40x40, 흰→검 로딩 색상)
+// 2026-03-19: 수지탱크 1, 2 상자 추가
+// 2026-03-25: INP 1~6 본탱크 수위 표시 추가
 
 import { useMemo } from "react"
 import { PipeFlows } from "./valve-flows"
+import { InverterState } from "./types"
 
 interface HousingValveMapProps {
   relayState: number[]
   pipeFlows: PipeFlows
   resinElapsedSeconds?: number
+  inverters?: InverterState[]
 }
 
 const C = {
@@ -89,6 +92,51 @@ function Tank({ x, y, w, h, label, active }: {
   )
 }
 
+// 인버터 펌프 본탱크 미니 카드 (SVG 내부)
+function InvTankMini({ x, y, inv }: { x: number; y: number; inv: InverterState }) {
+  const W = 46, H = 38
+  const isOn    = inv.pumpStatus === "ON"
+  const isError = inv.pumpStatus === "ERROR"
+  const lvl     = Math.min(100, Math.max(0, inv.tankLevel))
+  const fillH   = Math.round((H - 18) * lvl / 100)  // 수위 바 높이 (max 20px)
+  const barColor = isError ? "#ef4444" : lvl < 30 ? "#ef4444" : lvl < 70 ? "#f59e0b" : "#34d399"
+  const borderColor = isError ? "#ef4444" : isOn ? "#34d399" : "#475569"
+
+  return (
+    <g>
+      {/* 외곽 박스 */}
+      <rect x={x} y={y} width={W} height={H} rx={3}
+        fill="#0f172a" stroke={borderColor} strokeWidth={isOn ? 1.5 : 1} />
+      {/* 헤더 — 라벨 + 상태 점 */}
+      <text x={x + 4} y={y + 9} fontSize={7} fill="#94a3b8" fontFamily="monospace">
+        INP {inv.id}
+      </text>
+      <circle cx={x + W - 6} cy={y + 6} r={3}
+        fill={isError ? "#ef4444" : isOn ? "#34d399" : "#64748b"} />
+      {/* 구분선 */}
+      <line x1={x} y1={y + 13} x2={x + W} y2={y + 13} stroke="#1e293b" strokeWidth={1} />
+      {/* 수위 배경 */}
+      <rect x={x + 3} y={y + 16} width={W - 6} height={H - 20} rx={2} fill="#1e293b" />
+      {/* 수위 채움 */}
+      {fillH > 0 && (
+        <rect
+          x={x + 3}
+          y={y + 16 + (H - 20) - fillH}
+          width={W - 6}
+          height={fillH}
+          rx={2}
+          fill={barColor}
+          opacity={0.7}
+        />
+      )}
+      {/* 수위 텍스트 */}
+      <text x={x + W / 2} y={y + H - 3} textAnchor="middle" fontSize={7} fill="#94a3b8" fontFamily="monospace">
+        {lvl.toFixed(0)}%
+      </text>
+    </g>
+  )
+}
+
 // 수지탱크 상자 — 40x40, 흰색(0h)→검정(10h)
 function ResinTankBox({ x, y, label, elapsedSeconds }: {
   x: number; y: number; label: string; elapsedSeconds: number
@@ -120,6 +168,7 @@ export default function HousingValveMap({
   relayState,
   pipeFlows: pf,
   resinElapsedSeconds = 0,
+  inverters = [],
 }: HousingValveMapProps) {
   const v = useMemo(
     () => Array.from({ length: 8 }, (_, i) => (relayState[i] ?? 0) === 1),
@@ -132,7 +181,7 @@ export default function HousingValveMap({
         Housing Valve P&amp;ID
       </p>
 
-      <svg viewBox="0 0 320 270" className="w-full" style={{ maxHeight: 250 }}>
+      <svg viewBox="0 0 320 320" className="w-full" style={{ maxHeight: 300 }}>
         <defs>
           <style>{`@keyframes mf-dash { to { stroke-dashoffset: -20; } }`}</style>
         </defs>
@@ -190,6 +239,21 @@ export default function HousingValveMap({
         <text x={4} y={192} fontSize={7} fill="#475569" fontFamily="monospace">Standby</text>
         <ResinTankBox x={4}  y={197} label="1" elapsedSeconds={resinElapsedSeconds} />
         <ResinTankBox x={50} y={197} label="2" elapsedSeconds={resinElapsedSeconds} />
+
+        {/* INP 1~6 본탱크 수위 */}
+        {inverters.length > 0 && (
+          <g>
+            <text x={4} y={276} fontSize={7} fill="#475569" fontFamily="monospace">INP Tanks</text>
+            {inverters.map((inv, i) => (
+              <InvTankMini
+                key={inv.id}
+                x={4 + i * 52}
+                y={280}
+                inv={inv}
+              />
+            ))}
+          </g>
+        )}
       </svg>
 
       {/* 범례 */}

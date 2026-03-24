@@ -294,6 +294,7 @@ export default function MobileFinalPage() {
         <HousingValveMap
           relayState={state.valveRelayState}
           pipeFlows={pipeFlows}
+          inverters={state.inverters}
         />
         <PumpCards
           inverters={state.inverters}
