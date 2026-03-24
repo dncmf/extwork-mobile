@@ -243,6 +243,11 @@ export default function MobileFinalPage() {
     return () => { mounted = false }
   }, [handleMessage])
 
+  // ── 인버터 제어 (REST) ────────────────────────────────────────
+  const handleInverterToggle = useCallback(async (id: number, nextOn: boolean) => {
+    await apiPost("/api/v1/commands/pump", { type: "inverter", id, power: nextOn ? "ON" : "OFF" })
+  }, [])
+
   // ── 부스터 제어 (REST) ─────────────────────────────────────
   const handleBoosterToggle = useCallback(async (id: number, nextOn: boolean) => {
     await apiPost("/api/v1/commands/pump", { type: "booster", id, power: nextOn ? "ON" : "OFF" })
@@ -293,6 +298,7 @@ export default function MobileFinalPage() {
         <PumpCards
           inverters={state.inverters}
           boosters={state.boosters}
+          onInverterToggle={handleInverterToggle}
           onBoosterToggle={handleBoosterToggle}
         />
       </main>

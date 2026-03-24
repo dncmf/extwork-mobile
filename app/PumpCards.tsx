@@ -1,7 +1,8 @@
 "use client"
 
-// mobile-final/PumpCards.tsx
+// PumpCards.tsx
 // 인버터 펌프 1~6 소형 카드 (2열 그리드) + 부스터 펌프 1~2
+// INP 표기 + ON/OFF 버튼 추가
 
 import { InverterState, BoosterState } from "./types"
 
@@ -12,8 +13,13 @@ function levelColor(level: number): string {
   return "#34d399"                   // emerald-400
 }
 
-// ── 인버터 카드 ─────────────────────────────────────────────────
-function InverterCard({ inv }: { inv: InverterState }) {
+// ── 인버터 카드 (ON/OFF 버튼 포함) ──────────────────────────────
+interface InverterCardProps {
+  inv: InverterState
+  onToggle: (id: number, nextOn: boolean) => void
+}
+
+function InverterCard({ inv, onToggle }: InverterCardProps) {
   const isOn    = inv.pumpStatus === "ON"
   const isError = inv.pumpStatus === "ERROR"
   const barColor = isError ? "#ef4444" : levelColor(inv.tankLevel)
@@ -31,7 +37,7 @@ function InverterCard({ inv }: { inv: InverterState }) {
     >
       {/* 헤더 */}
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-bold text-slate-200">INV {inv.id}</span>
+        <span className="text-[11px] font-bold text-slate-200">INP {inv.id}</span>
         <span
           className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${
             isError
@@ -54,12 +60,24 @@ function InverterCard({ inv }: { inv: InverterState }) {
       </div>
 
       {/* 수위 수치 */}
-      <div className="flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <span className="text-[9px] text-slate-500">수위</span>
         <span className="font-mono text-[10px] font-semibold text-slate-300">
           {inv.tankLevel.toFixed(0)}%
         </span>
       </div>
+
+      {/* ON/OFF 버튼 */}
+      <button
+        onClick={() => onToggle(inv.id, !isOn)}
+        className={`w-full rounded-lg py-1 text-[10px] font-bold transition-colors active:scale-95 ${
+          isOn
+            ? "bg-emerald-600/80 text-white hover:bg-emerald-700"
+            : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+        }`}
+      >
+        {isOn ? "ON" : "OFF"}
+      </button>
     </div>
   )
 }
@@ -106,10 +124,11 @@ function BoosterCard({ booster, onToggle }: BoosterCardProps) {
 interface PumpCardsProps {
   inverters: InverterState[]
   boosters: BoosterState[]
+  onInverterToggle: (id: number, nextOn: boolean) => void
   onBoosterToggle: (id: number, nextOn: boolean) => void
 }
 
-export default function PumpCards({ inverters, boosters, onBoosterToggle }: PumpCardsProps) {
+export default function PumpCards({ inverters, boosters, onInverterToggle, onBoosterToggle }: PumpCardsProps) {
   return (
     <div className="space-y-2.5">
       {/* 섹션 헤더 */}
@@ -120,7 +139,7 @@ export default function PumpCards({ inverters, boosters, onBoosterToggle }: Pump
       {/* 인버터 2열 그리드 */}
       <div className="grid grid-cols-2 gap-2">
         {inverters.map((inv) => (
-          <InverterCard key={inv.id} inv={inv} />
+          <InverterCard key={inv.id} inv={inv} onToggle={onInverterToggle} />
         ))}
       </div>
 
