@@ -175,6 +175,9 @@ export default function MobileFinalPage() {
     if (stateMatch) {
       let status = payload.trim()
       try { const j = JSON.parse(payload); if (typeof j.message === "string") status = j.message.trim() } catch {}
+      // 시뮬레이터는 '1'/'0' 발행 → ON/OFF 정규화
+      if (status === "1") status = "ON"
+      else if (status === "0") status = "OFF"
       const id = parseInt(stateMatch[1], 10)
       setState(prev => ({ ...prev, inverters: prev.inverters.map(inv => inv.id === id ? { ...inv, pumpStatus: status } : inv) }))
       return
@@ -201,7 +204,10 @@ export default function MobileFinalPage() {
         const j = JSON.parse(payload)
         const inner = typeof j.message === "string" ? JSON.parse(j.message) : j
         isOn = inner.power === "ON" || inner.power === 1 || inner.power === true
-      } catch { isOn = payload.trim() === "ON" }
+      } catch {
+        const v = payload.trim()
+        isOn = v === "ON" || v === "1"
+      }
       const id = parseInt(boosterMatch[1], 10)
       setState(prev => ({ ...prev, boosters: prev.boosters.map(b => b.id === id ? { ...b, isOn } : b) }))
       return
