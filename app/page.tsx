@@ -45,16 +45,19 @@ function parseProgress(raw: string): ProcessProgress | null {
     let json = JSON.parse(raw)
     if (typeof json.message === "string" && json.message.startsWith("{")) json = JSON.parse(json.message)
     else if (typeof json.payload === "string" && json.payload.startsWith("{")) json = JSON.parse(json.payload)
-    const elapsed   = json.elapsed_time   != null ? parseFloat(String(json.elapsed_time))   : 0
-    const remaining = json.remaining_time != null ? parseFloat(String(json.remaining_time)) : 0
-    const total     = elapsed + remaining
+    // v2: elapsed_s / remaining_s, v1 fallback: elapsed_time / remaining_time
+    const elapsed   = json.elapsed_s   != null ? parseFloat(String(json.elapsed_s))
+                    : json.elapsed_time != null ? parseFloat(String(json.elapsed_time)) : 0
+    const remaining = json.remaining_s   != null ? parseFloat(String(json.remaining_s))
+                    : json.remaining_time != null ? parseFloat(String(json.remaining_time)) : 0
+    const total     = json.total_s != null ? parseFloat(String(json.total_s)) : elapsed + remaining
     const pct       = total > 0 ? Math.min(100, (elapsed / total) * 100) : 0
     return {
       pct,
       processInfo:   json.process_info ?? json.message ?? json.status ?? "공정 실행 중",
       elapsedTime:   elapsed   > 0 ? elapsed   : undefined,
       remainingTime: remaining > 0 ? remaining : undefined,
-      isRunning:     json.status === "running" || elapsed > 0,
+      isRunning:     json.active === true || json.status === "running" || elapsed > 0,
       rawMessage:    raw,
     }
   } catch { return null }
@@ -183,7 +186,41 @@ export default function MobileFinalPage() {
       return
     }
 
-    // 탱크 수위
+    // v2: health JSON — 연결 상태
+    const healthMatch = topic.match(/pump\/inverter(\d+)\/health$/)
+    if (healthMatch) {
+      try {
+        const h = JSON.parse(payload)
+        const id = parseInt(healthMatch[1], 10)
+        setState(prev => ({
+          ...prev,
+          inverters: prev.inverters.map(inv =>
+            inv.id === id ? { ...inv, health: h } : inv
+          )
+        }))
+      } catch { /* health parse error ignored */ }
+      return
+    }
+
+    // 탱크 수위 — v2: sensor JSON
+    const sensorMatch = topic.match(/pump\/inverter(\d+)\/sensor$/)
+    if (sensorMatch) {
+      try {
+        const s = JSON.parse(payload)
+        const id = parseInt(sensorMatch[1], 10)
+        const level = s.full ? 100 : s.empty ? 0 : -1
+        if (level >= 0) {
+          setState(prev => ({
+            ...prev,
+            inverters: prev.inverters.map(inv =>
+              inv.id === id ? { ...inv, tankLevel: level } : inv
+            )
+          }))
+        }
+      } catch { /* sensor parse error ignored */ }
+      return
+    }
+    // 수위 (v1 legacy tank_level — 하위호환 유지)
     const levelMatch = topic.match(/pump\/inverter(\d+)\/tank\d+_level$/)
     if (levelMatch) {
       let value = payload.trim()
@@ -213,8 +250,58 @@ export default function MobileFinalPage() {
       return
     }
 
-    // 공정 진행
-    if (topic.includes("inverter/output") || topic.includes("inverter/progress")) {
+    // v2: inverter/error — 에러 알림
+    if (topic.includes("inverter/error")) {
+      try {
+        const e = JSON.parse(payload)
+        const codeMap: Record<string, string> = {
+          TANK_FULL_SAFETY: "탱크 가득참",
+          TANK_FULL_BLOCK: "수위초과 — 주입 차단",
+          PUMP_MAX_TIME: "펌프 최대 가동 시간 초과",
+          PUMP_CMD_FAIL: "펌프 명령 전송 실패",
+          MQTT_MSG_TOO_LARGE: "MQTT 메시지 크기 초과",
+          JSON_PARSE_ERROR: "JSON 파싱 실패",
+          QUEUE_FULL: "큐 초과",
+          PROCESS_ERROR: "공정 처리 오류",
+          OTA_START: "OTA 업데이트 중",
+          OTA_DONE: "OTA 완료",
+          RESET_FROM_CMD: "리셋 명령 실행",
+        }
+        const msg = codeMap[e.code] ?? e.msg ?? e.code ?? "알 수 없는 에러"
+        const src = e.src ?? "system"
+        console.warn(`[MQTT ERROR] ${src}: ${msg}`)
+        // TODO: toast 알림 연동
+      } catch { /* error parse ignored */ }
+      return
+    }
+
+    // 공정 진행 — v2: inverter/state (active=true) or inverter/progress
+    if (topic.includes("inverter/state")) {
+      try {
+        const s = JSON.parse(payload)
+        if (s.active) {
+          setState(prev => ({
+            ...prev,
+            progress: {
+              pct: prev.progress?.pct ?? 0,
+              processInfo: `펌프${s.pump} ${s.mode ?? ""} 반복 ${s.repeat_cur ?? 1}/${s.repeat_max ?? 1}`,
+              isRunning: !s.paused,
+              rawMessage: payload,
+            }
+          }))
+        } else {
+          setState(prev => ({ ...prev, progress: { pct: 0, processInfo: "공정 대기 중", isRunning: false, rawMessage: payload } }))
+        }
+      } catch { /* state parse error ignored */ }
+      return
+    }
+    if (topic.includes("inverter/progress")) {
+      const p = parseProgress(payload)
+      if (p) setState(prev => ({ ...prev, progress: p }))
+      return
+    }
+    // v1 fallback
+    if (topic.includes("inverter/output")) {
       const p = parseProgress(payload)
       if (p) setState(prev => ({ ...prev, progress: p }))
     }

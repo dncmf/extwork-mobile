@@ -4,7 +4,7 @@
 // 인버터 펌프 1~6 소형 카드 (2열 그리드) + 부스터 펌프 1~2
 // INP 표기 + ON/OFF 버튼 추가
 
-import { InverterState, BoosterState } from "./types"
+import { InverterState, BoosterState, PumpHealth } from "./types"
 
 // ── 수위 바 색상 ────────────────────────────────────────────────
 function levelColor(level: number): string {
@@ -38,17 +38,32 @@ function InverterCard({ inv, onToggle }: InverterCardProps) {
       {/* 헤더 */}
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[11px] font-bold text-slate-200">INP {inv.id}</span>
-        <span
-          className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${
-            isError
-              ? "bg-red-900/60 text-red-400"
-              : isOn
-              ? "bg-emerald-900/50 text-emerald-400"
-              : "bg-slate-700 text-slate-500"
-          }`}
-        >
-          {isError ? "ERR" : isOn ? "ON" : "OFF"}
-        </span>
+        <div className="flex items-center gap-1">
+          {/* v2 health 연결 아이콘 */}
+          {inv.health && (
+            <>
+              <span
+                title={`WiFi ${inv.health.rssi ?? "?"}dBm`}
+                className={`h-1.5 w-1.5 rounded-full ${inv.health.wifi ? "bg-emerald-400" : "bg-slate-600"}`}
+              />
+              <span
+                title="MQTT"
+                className={`h-1.5 w-1.5 rounded-full ${inv.health.mqtt ? "bg-blue-400" : "bg-slate-600"}`}
+              />
+            </>
+          )}
+          <span
+            className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${
+              isError
+                ? "bg-red-900/60 text-red-400"
+                : isOn
+                ? "bg-emerald-900/50 text-emerald-400"
+                : "bg-slate-700 text-slate-500"
+            }`}
+          >
+            {isError ? "ERR" : isOn ? "ON" : "OFF"}
+          </span>
+        </div>
       </div>
 
       {/* 수위 바 */}
@@ -59,11 +74,18 @@ function InverterCard({ inv, onToggle }: InverterCardProps) {
         />
       </div>
 
-      {/* 수위 수치 */}
+      {/* 수위 수치 + sensor 상태 */}
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[9px] text-slate-500">수위</span>
-        <span className="font-mono text-[10px] font-semibold text-slate-300">
-          {inv.tankLevel.toFixed(0)}%
+        <span className="text-[9px] text-slate-500">
+          {inv.sensor?.level === "full" ? "FULL" : inv.sensor?.level === "low" ? "LOW" : "수위"}
+        </span>
+        <span className={`font-mono text-[10px] font-semibold ${
+          inv.sensor?.full ? "text-blue-400" : inv.sensor?.empty ? "text-red-400" : "text-slate-300"
+        }`}>
+          {inv.sensor != null
+            ? inv.sensor.full ? "100%" : inv.sensor.empty ? "0%"
+              : inv.sensor.filling ? `채움중 ${inv.sensor.fill_sec ?? 0}s` : "정상"
+            : `${inv.tankLevel.toFixed(0)}%`}
         </span>
       </div>
 
