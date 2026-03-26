@@ -1,9 +1,12 @@
 // mobile-final/mqtt-ws-client.ts
-// 브라?��? WebSocket 기반 MQTT 3.1.1 ?��????�라?�언??// ?�버 PC extwork-mobile ?�는 mqtt npm ?�키지가 ?�으므�?// 브라?��? WebSocket (ws:// 8083) ?�로 직접 MQTT ?�로?�콜 구현
+// 브라우저 WebSocket 기반 MQTT 3.1.1 싱글톤 클라이언트
+// 서버 PC extwork-mobile 에는 mqtt npm 패키지가 없으므로
+// 브라우저 WebSocket (ws:// 8083) 으로 직접 MQTT 프로토콜 구현
 //
-// 참고: 브라?��? ?�경?��?�?mqtt.js CDN???�용?�는 ?�??//        Next.js dynamic import + window.mqtt 방식?�로 처리
+// 참고: 브라우저 환경이므로 mqtt.js CDN을 사용하는 대신
+//        Next.js dynamic import + window.mqtt 방식으로 처리
 //
-// ?�용�? page.tsx ?�서 import { getMqttClient } from "./mqtt-ws-client"
+// 사용처: page.tsx 에서 import { getMqttClient } from "./mqtt-ws-client"
 
 type MessageHandler = (topic: string, message: string) => void
 type StatusHandler = (status: "connected" | "connecting" | "disconnected") => void
@@ -20,16 +23,16 @@ interface MqttWsClient {
   disconnect: () => void
 }
 
-// MQTT over WebSocket 브로�??�정 (?�경변???�선)
+// MQTT over WebSocket 브로커 설정 (환경변수 우선)
 const MQTT_WS_HOST =
   typeof window !== "undefined"
-    ? (process.env.NEXT_PUBLIC_MQTT_WS_URL ?? "ws://10.0.1.2:8083")
-    : "ws://10.0.1.2:8083"
+    ? (process.env.NEXT_PUBLIC_MQTT_WS_URL ?? "ws://10.0.1.2:8083/mqtt")
+    : "ws://10.0.1.2:8083/mqtt"
 const MQTT_USERNAME = "dnature"
 const MQTT_PASSWORD = "8210"
 const MQTT_CLIENT_ID = `mobile-final-${Math.random().toString(16).slice(2, 8)}`
 
-// ?�?� ?��????�스?�스 ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
+// ── 싱글톤 인스턴스 ──────────────────────────────────────────
 let _instance: ReturnType<typeof createMqttWsClient> | null = null
 
 export function getMqttClient() {
@@ -37,7 +40,7 @@ export function getMqttClient() {
   return _instance
 }
 
-// ?�?� MQTT ?�로?�콜 빌더 ?�퍼 (MQTT 3.1.1) ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
+// ── MQTT 프로토콜 빌더 헬퍼 (MQTT 3.1.1) ─────────────────────
 
 function encodeString(str: string): Uint8Array {
   const encoded = new TextEncoder().encode(str)
@@ -106,7 +109,7 @@ function buildPingreqPacket(): Uint8Array {
   return new Uint8Array([0xC0, 0x00])
 }
 
-// ?�?� ?�서: ?�신 바이????topic + message ?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
+// ── 파서: 수신 바이트 → topic + message ────────────────────────
 
 function parsePublishPacket(data: Uint8Array): { topic: string; message: string } | null {
   if ((data[0] & 0xF0) !== 0x30) return null
@@ -117,7 +120,7 @@ function parsePublishPacket(data: Uint8Array): { topic: string; message: string 
   return { topic, message: payload }
 }
 
-// ?�?� ?�라?�언???�토�??�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�?�
+// ── 클라이언트 팩토리 ─────────────────────────────────────────
 
 function createMqttWsClient(): MqttWsClient {
   let ws: WebSocket | null = null
@@ -169,8 +172,10 @@ function createMqttWsClient(): MqttWsClient {
         const rc = data[3]
         if (rc === 0) {
           emitStatus("connected")
-          // ?�구??          pendingSubscriptions.forEach((t) => subscribeNow(t))
-          // ??          if (pingTimer) clearInterval(pingTimer)
+          // 재구독
+          pendingSubscriptions.forEach((t) => subscribeNow(t))
+          // 핑
+          if (pingTimer) clearInterval(pingTimer)
           pingTimer = setInterval(() => sendRaw(buildPingreqPacket()), 30000)
         } else {
           emitStatus("disconnected")
@@ -187,7 +192,7 @@ function createMqttWsClient(): MqttWsClient {
       }
 
       if (type === 0xD0) {
-        // PINGRESP ??무시
+        // PINGRESP — 무시
         return
       }
     }
@@ -195,7 +200,8 @@ function createMqttWsClient(): MqttWsClient {
     ws.onclose = () => {
       emitStatus("disconnected")
       if (pingTimer) clearInterval(pingTimer)
-      // 5�????�연�?      reconnectTimer = setTimeout(() => connect(), 5000)
+      // 5초 후 재연결
+      reconnectTimer = setTimeout(() => connect(), 5000)
     }
 
     ws.onerror = () => {
