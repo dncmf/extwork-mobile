@@ -210,10 +210,12 @@ interface ProcessStatusProps {
   progress: ProcessProgress | null
   inverters: InverterState[]
   boosters: BoosterState[]
+  extractionPct?: number
+  housingPct?: number
 }
 
 // ── 메인 컴포넌트 ──────────────────────────────────────────────
-export default function ProcessStatus({ progress, inverters, boosters }: ProcessStatusProps) {
+export default function ProcessStatus({ progress, inverters, boosters, extractionPct: extPctProp, housingPct: housingPctProp }: ProcessStatusProps) {
   const overallPct     = progress?.pct ?? 0
   const overallRunning = progress?.isRunning ?? false
   const overallLabel   = progress?.processInfo ?? "대기"
@@ -228,7 +230,11 @@ export default function ProcessStatus({ progress, inverters, boosters }: Process
 
   // 하우징 (부스터 기반)
   const housingActive = boosters.some((b) => b.isOn)
-  const housingPct    = housingActive ? overallPct : 0
+  const housingPctBase = housingActive ? overallPct : 0
+
+  // API 폴링값 우선 적용 (서버 job-engine / extraction-engine)
+  const finalExtractionPct = extPctProp != null ? extPctProp : circulationPct
+  const finalHousingPct    = housingPctProp != null ? housingPctProp : housingPctBase
 
   // 펌프 요약
   const pumpSummary = useMemo(() => {
@@ -254,13 +260,13 @@ export default function ProcessStatus({ progress, inverters, boosters }: Process
       {/* 링 게이지 + 펌프 요약 */}
       <div className="glass-card flex items-center justify-between px-4 py-3">
         <Ring
-          pct={circulationPct}
+          pct={finalExtractionPct}
           label="순환추출"
           color={circulationActive ? "#22d3ee" : "#334155"}
           isActive={circulationActive}
         />
         <Ring
-          pct={housingPct}
+          pct={finalHousingPct}
           label="하우징"
           color={housingActive ? "#34d399" : "#334155"}
           isActive={housingActive}
