@@ -1,25 +1,19 @@
 "use client"
 
-// mobile-final/page.tsx
-// D-nature CMXF 모바일 UI — 미래지향적 미니멀 리디자인
-//
-// 화면 구조 (단일 스크롤):
-//   [헤더]              — 앱명 + SSE 연결상태 + 시각 (슬림)
-//   [전체 공정 진행률]  — ProcessStatus
-//   [하우징 밸브 P&ID]  — HousingValveMap SVG
-//   [펌프 카드 그리드]  — PumpCards (3열)
-//   [하단 고정]         — ControlBar (EMERGENCY STOP)
-//
-// 실시간 데이터: MQTT 직접 연결 대신 서버 SSE(/api/v1/events) 사용
-// → devtunnel 외부 접근에서도 정상 동작
+// D-nature CMXF 모바일 UI — 탭 네비게이션 리디자인
+// 구조: 헤더(슬림) + 탭 콘텐츠(전체 화면) + 하단 탭바
+// 탭: 공정 | 밸브 | 펌프 | 제어
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import ProcessStatus from "./ProcessStatus"
 import HousingValveMap from "./HousingValveMap"
 import PumpCards from "./PumpCards"
-import ControlBar from "./ControlBar"
+import BottomNav from "./BottomNav"
 import { ToastContainer, ToastItem, makeToastItem } from "./Toast"
-import { AppState, InverterState, BoosterState, ProcessProgress, ValvePayload, ProcessMode } from "./types"
+import {
+  AppState, InverterState, BoosterState, ProcessProgress,
+  ValvePayload, ProcessMode, TabId
+} from "./types"
 import { calcPipeFlows, unwrapN8n } from "./valve-flows"
 
 // ============================================================
@@ -27,7 +21,6 @@ import { calcPipeFlows, unwrapN8n } from "./valve-flows"
 // ============================================================
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://10.0.1.2:3000"
 
-// SSE 수신 시 토픽 매칭에 사용 (구독 목록 불필요, 서버가 전체 브로드캐스트)
 const TOPICS = {
   VALVE_STATE:           "dnature/factory/zone1/valve/status/SIM_VALVE_01",
   INVERTER_STATE_GLOBAL: "dnature/factory/zone1/inverter/state",
@@ -75,12 +68,9 @@ function parseProgress(raw: string): ProcessProgress | null {
     const remaining = json.remaining_time != null ? parseFloat(String(json.remaining_time)) : 0
     const total     = elapsed + remaining
     const pct       = total > 0 ? Math.min(100, (elapsed / total) * 100) : 0
-
-    // mode 파싱: "S" | "O" | "C" (없으면 undefined)
-    const rawMode = json.mode ?? json.scenario_mode ?? json.process_mode
+    const rawMode   = json.mode ?? json.scenario_mode ?? json.process_mode
     const mode: ProcessMode | undefined =
       rawMode === "S" || rawMode === "O" || rawMode === "C" ? rawMode : undefined
-
     return {
       pct,
       processInfo:   json.process_info ?? json.message ?? json.status ?? "공정 실행 중",
@@ -96,23 +86,32 @@ function parseProgress(raw: string): ProcessProgress | null {
 }
 
 // ============================================================
-// 헤더 (미니멀)
+// 헤더
 // ============================================================
 function Header({
   mqttStatus,
   currentTime,
-  isManualMode,
+  activeTab,
   currentValveMode,
+  isManualMode,
 }: {
-  mqttStatus: AppState["mqttStatus"]
-  currentTime: string
-  isManualMode: boolean
+  mqttStatus:       AppState["mqttStatus"]
+  currentTime:      string
+  activeTab:        TabId
   currentValveMode: number
+  isManualMode:     boolean
 }) {
   const dotColor =
-    mqttStatus === "connected"   ? "#22d3ee" :
-    mqttStatus === "connecting"  ? "#fbbf24" :
+    mqttStatus === "connected"  ? "#22d3ee" :
+    mqttStatus === "connecting" ? "#fbbf24" :
     "#475569"
+
+  const TAB_TITLE: Record<TabId, string> = {
+    process: "공정 현황",
+    valve:   "밸브 맵",
+    pump:    "펌프 상태",
+    control: "제어",
+  }
 
   const modeLabel = isManualMode
     ? "MANUAL"
@@ -121,28 +120,45 @@ function Header({
     : null
 
   return (
-    <div className="sticky top-0 z-40 border-b border-slate-800/40 bg-[#06080F]/90 px-4 py-2 backdrop-blur-lg">
+    <div
+      className="sticky top-0 z-40 px-4 py-2.5"
+      style={{
+        background: "rgba(6, 8, 15, 0.9)",
+        borderBottom: "1px solid rgba(148,163,184,0.07)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+      }}
+    >
       <div className="flex items-center justify-between">
-        {/* 좌: 앱명 + 연결 도트 */}
         <div className="flex items-center gap-2">
           <div
-            className="h-2 w-2 rounded-full transition-colors"
+            className="h-2 w-2 rounded-full"
             style={{
               backgroundColor: dotColor,
-              boxShadow: mqttStatus === "connected" ? `0 0 8px ${dotColor}60` : "none",
+              boxShadow: mqttStatus === "connected" ? `0 0 8px ${dotColor}80` : "none",
+              transition: "all 0.3s",
             }}
           />
-          <span className="text-[13px] font-semibold tracking-tight text-slate-200">
+          <span className="text-sm font-semibold tracking-tight text-slate-200">
             CMXF
           </span>
+          <span style={{ color: "#475569", fontSize: "12px" }}>·</span>
+          <span className="text-xs font-medium text-slate-400">
+            {TAB_TITLE[activeTab]}
+          </span>
           {modeLabel && (
-            <span className="rounded bg-slate-800/80 px-1.5 py-0.5 font-mono text-[9px] font-medium text-slate-500">
+            <span
+              className="rounded px-1.5 py-0.5 font-mono text-[9px] font-medium"
+              style={{
+                background: "rgba(34,211,238,0.1)",
+                color: "#22d3ee",
+                border: "1px solid rgba(34,211,238,0.2)",
+              }}
+            >
               {modeLabel}
             </span>
           )}
         </div>
-
-        {/* 우: 시각 */}
         <span className="font-mono text-[11px] tabular-nums text-slate-600">
           {currentTime}
         </span>
@@ -152,36 +168,200 @@ function Header({
 }
 
 // ============================================================
+// 제어 탭 — 긴급정지 + 상태
+// ============================================================
+function ControlTab({
+  mqttStatus,
+  progress,
+  onEmergencyStop,
+  emergencyDone,
+}: {
+  mqttStatus:    AppState["mqttStatus"]
+  progress:      ProcessProgress | null
+  onEmergencyStop: () => void
+  emergencyDone: boolean
+}) {
+  const [confirm, setConfirm] = useState(false)
+  const isConnected = mqttStatus === "connected"
+  const isRunning   = progress?.isRunning ?? false
+
+  const handlePress = () => {
+    if (!confirm) { setConfirm(true); return }
+    onEmergencyStop()
+    setConfirm(false)
+  }
+
+  useEffect(() => {
+    if (!confirm) return
+    const t = setTimeout(() => setConfirm(false), 3000)
+    return () => clearTimeout(t)
+  }, [confirm])
+
+  return (
+    <div className="flex min-h-full flex-col items-center justify-start gap-6 px-5 pt-8 pb-32">
+
+      {/* 연결 상태 카드 */}
+      <div
+        className="w-full rounded-2xl p-5"
+        style={{
+          background: "rgba(15,23,42,0.6)",
+          border: "1px solid rgba(148,163,184,0.08)",
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-slate-400">서버 연결</span>
+          <div className="flex items-center gap-2">
+            <div
+              className="h-2.5 w-2.5 rounded-full"
+              style={{
+                backgroundColor:
+                  isConnected ? "#22d3ee" :
+                  mqttStatus === "connecting" ? "#fbbf24" : "#ef4444",
+                boxShadow: isConnected ? "0 0 10px #22d3ee80" : "none",
+                animation: mqttStatus === "connecting" ? "pulse-glow 1s infinite" : "none",
+              }}
+            />
+            <span
+              className="text-sm font-semibold"
+              style={{ color: isConnected ? "#22d3ee" : "#ef4444" }}
+            >
+              {isConnected ? "연결됨" : mqttStatus === "connecting" ? "연결 중..." : "끊김"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 공정 상태 카드 */}
+      <div
+        className="w-full rounded-2xl p-5"
+        style={{
+          background: "rgba(15,23,42,0.6)",
+          border: `1px solid ${isRunning ? "rgba(52,211,153,0.2)" : "rgba(148,163,184,0.08)"}`,
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-slate-400">공정 상태</span>
+          <div className="flex items-center gap-2">
+            {isRunning && (
+              <div
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: "#34d399", animation: "pulse-glow 1.5s infinite" }}
+              />
+            )}
+            <span
+              className="text-sm font-semibold"
+              style={{ color: isRunning ? "#34d399" : "#64748b" }}
+            >
+              {isRunning ? "실행 중" : "유휴"}
+            </span>
+          </div>
+        </div>
+        {isRunning && progress && (
+          <div className="mt-3">
+            <div className="mb-1.5 flex justify-between text-xs text-slate-500">
+              <span>{progress.processInfo}</span>
+              <span>{Math.round(progress.pct)}%</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: "rgba(30,41,59,0.8)" }}>
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${progress.pct}%`,
+                  background: "linear-gradient(90deg, #34d399, #22d3ee)",
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 긴급정지 버튼 */}
+      <div className="w-full">
+        {emergencyDone ? (
+          <div
+            className="flex w-full items-center justify-center rounded-2xl py-6"
+            style={{
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)",
+            }}
+          >
+            <span className="font-mono text-base font-bold tracking-widest text-red-400">
+              ✓ 긴급정지 전송됨
+            </span>
+          </div>
+        ) : (
+          <button
+            onClick={handlePress}
+            className="w-full rounded-2xl py-6 transition-all duration-200 active:scale-95"
+            style={{
+              background: confirm
+                ? "rgba(239,68,68,0.25)"
+                : "rgba(239,68,68,0.12)",
+              border: confirm
+                ? "1.5px solid rgba(239,68,68,0.7)"
+                : "1.5px solid rgba(239,68,68,0.3)",
+              boxShadow: confirm ? "0 0 24px rgba(239,68,68,0.2)" : "none",
+              cursor: "pointer",
+            }}
+          >
+            <div className="flex flex-col items-center gap-1.5">
+              <span
+                className="font-mono text-xl font-black tracking-widest"
+                style={{ color: "#ef4444" }}
+              >
+                EMERGENCY STOP
+              </span>
+              {confirm && (
+                <span className="text-xs font-medium text-red-400 animate-pulse">
+                  한 번 더 누르면 전송됩니다
+                </span>
+              )}
+              {!confirm && (
+                <span className="text-xs text-slate-600">
+                  탭하여 긴급정지
+                </span>
+              )}
+            </div>
+          </button>
+        )}
+      </div>
+
+      {/* 안내 */}
+      <p className="text-center text-xs leading-relaxed text-slate-700">
+        긴급정지 시 모든 펌프와 밸브가<br />즉시 안전 상태로 전환됩니다.
+      </p>
+    </div>
+  )
+}
+
+// ============================================================
 // 메인 페이지
 // ============================================================
-export default function MobileFinalPage() {
-  const [state, setState]    = useState<AppState>(makeInitialState)
-  const [currentTime, setTime] = useState("")
+export default function MobilePage() {
+  const [state,        setState]        = useState<AppState>(makeInitialState)
+  const [currentTime,  setTime]         = useState("")
   const [emergencyDone, setEmergencyDone] = useState(false)
-  const [toasts, setToasts]  = useState<ToastItem[]>([])
+  const [toasts,       setToasts]       = useState<ToastItem[]>([])
+  const [activeTab,    setActiveTab]    = useState<TabId>("process")
   const [extractionPct, setExtractionPct] = useState(0)
-  const [housingPct, setHousingPct] = useState(0)
+  const [housingPct,   setHousingPct]   = useState(0)
 
   const sseRef = useRef<EventSource | null>(null)
 
-  // ── 시각 업데이트 ──────────────────────────────────────────
+  // ── 시각 업데이트
   useEffect(() => {
     const tick = () =>
-      setTime(
-        new Date().toLocaleTimeString("ko-KR", {
-          hour: "2-digit", minute: "2-digit", second: "2-digit",
-        })
-      )
+      setTime(new Date().toLocaleTimeString("ko-KR", {
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+      }))
     tick()
     const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [])
 
-  // /api/tank-data 폴링 제거 — SSE로 실시간 수신
-
-  // ── extraction-engine / job-engine 폴링 (3s) ────────────
+  // ── extraction/job-engine 폴링 (3s)
   useEffect(() => {
-    const pollProgress = async () => {
+    const poll = async () => {
       try {
         const [exR, jbR] = await Promise.all([
           fetch(`${API_BASE}/api/v1/extraction-engine`, { cache: "no-store" }),
@@ -199,18 +379,18 @@ export default function MobileFinalPage() {
         }
       } catch { /* 네트워크 오류 무시 */ }
     }
-    pollProgress()
-    const tid = setInterval(pollProgress, 3000)
+    poll()
+    const tid = setInterval(poll, 3000)
     return () => clearInterval(tid)
   }, [])
 
-  // ── MQTT 핸들러 ───────────────────────────────────────────
+  // ── MQTT 핸들러들
   const handleValveState = useCallback((raw: string) => {
     const parsed = unwrapN8n(raw)
     if (!parsed || typeof parsed !== "object") return
     const p = parsed as ValvePayload
-    const isManual     = p.relay_mode === "manual" || p.current_valve_mode === -1
-    const relayState   = Array.isArray(p.relay_state) ? p.relay_state.slice(0, 8) : [...EMPTY_RELAY]
+    const isManual   = p.relay_mode === "manual" || p.current_valve_mode === -1
+    const relayState = Array.isArray(p.relay_state) ? p.relay_state.slice(0, 8) : [...EMPTY_RELAY]
     setState((prev) => ({
       ...prev,
       valveRelayState:  relayState,
@@ -224,7 +404,7 @@ export default function MobileFinalPage() {
     try {
       const j = JSON.parse(raw)
       if (typeof j.message === "string") status = j.message.trim()
-    } catch { /* 래핑 없는 단순 문자열 */ }
+    } catch { /* 단순 문자열 */ }
     setState((prev) => ({
       ...prev,
       inverters: prev.inverters.map((inv) =>
@@ -236,7 +416,6 @@ export default function MobileFinalPage() {
   const handleSensor = useCallback((id: number, raw: string) => {
     try {
       const d = JSON.parse(raw)
-      // d = { full, empty, level, filling, fill_sec }
       const level = d.level != null ? parseFloat(String(d.level)) : NaN
       if (!isNaN(level)) {
         setState((prev) => ({
@@ -246,7 +425,7 @@ export default function MobileFinalPage() {
           ),
         }))
       }
-    } catch { /* JSON 파싱 실패 — 무시 */ }
+    } catch { /* 무시 */ }
   }, [])
 
   const handleBoosterState = useCallback((id: 1 | 2, raw: string) => {
@@ -272,24 +451,18 @@ export default function MobileFinalPage() {
 
   const handleMessage = useCallback(
     (topic: string, message: string) => {
-      // 밸브 상태
       if (topic === TOPICS.VALVE_STATE) { handleValveState(message); return }
 
-      // 인버터 마스터 상태 (inverter/state) — JSON 파싱 → ProcessProgress 업데이트
       if (topic === TOPICS.INVERTER_STATE_GLOBAL) {
         try {
           const d = JSON.parse(message)
-          // 서버 응답 메시지 (reset 확인 등) — { msg, timestamp } 형식이면 무시
           if (d.msg !== undefined && d.active === undefined) return
-          // d = { active, pump, mode, repeat_cur, repeat_max, paused, queue }
           const isRunning = d.active === true || d.active === 1
-          const rawMode = d.mode
-          const mode: import("./types").ProcessMode | undefined =
+          const rawMode   = d.mode
+          const mode: ProcessMode | undefined =
             rawMode === "S" || rawMode === "O" || rawMode === "C" || rawMode === "U"
-              ? rawMode
-              : undefined
+              ? rawMode as ProcessMode : undefined
           setState((prev) => {
-            // 새 공정 시작(idle→running 전환)이면 pct 0으로 리셋, 아니면 이전 값 유지
             const prevRunning = prev.progress?.isRunning ?? false
             const pct = (isRunning && !prevRunning) ? 0 : (prev.progress?.pct ?? 0)
             return {
@@ -305,35 +478,31 @@ export default function MobileFinalPage() {
               },
             }
           })
-        } catch { /* JSON 파싱 실패 — 무시 */ }
+        } catch { /* 무시 */ }
         return
       }
 
-      // 개별 인버터 펌프 상태
       const stateMatch = topic.match(/pump\/inverter(\d+)\/state$/)
       if (stateMatch) { handleInverterState(parseInt(stateMatch[1], 10), message); return }
 
-      // 수위 센서 (와일드카드 PUMP_SENSOR_WILDCARD → inverterN/sensor)
       const sensorMatch = topic.match(/pump\/inverter(\d+)\/sensor$/)
       if (sensorMatch) { handleSensor(parseInt(sensorMatch[1], 10), message); return }
 
-      // 건강 상태 (와일드카드 PUMP_HEALTH_WILDCARD → inverterN/health)
       const healthMatch = topic.match(/pump\/inverter(\d+)\/health$/)
       if (healthMatch) {
         const n = parseInt(healthMatch[1], 10)
         try {
           const d = JSON.parse(message)
-          const healthMode: import("./types").InverterHealth["mode"] =
+          const healthMode: "wifi" | "ble_only" | "offline" =
             d.mode === "wifi" || d.mode === "ble_only" || d.mode === "offline"
-              ? d.mode
-              : "offline"
+              ? d.mode : "offline"
           setState((prev) => ({
             ...prev,
             inverters: prev.inverters.map((inv) =>
               inv.id === n ? { ...inv, health: { mode: healthMode } } : inv
             ),
           }))
-        } catch { /* JSON 파싱 실패 — 무시 */ }
+        } catch { /* 무시 */ }
         return
       }
 
@@ -343,14 +512,12 @@ export default function MobileFinalPage() {
         return
       }
 
-      // 인버터 에러 — toast 알림 (최대 3개 스택)
       if (topic === TOPICS.INVERTER_ERROR) {
         const item = makeToastItem(message)
         setToasts((prev) => [item, ...prev].slice(0, 3))
         return
       }
 
-      // 공정 진행률
       if (topic === TOPICS.PROCESS_PROGRESS) {
         const p = parseProgress(message)
         if (p) setState((prev) => ({ ...prev, progress: p }))
@@ -359,9 +526,7 @@ export default function MobileFinalPage() {
     [handleValveState, handleInverterState, handleSensor, handleBoosterState]
   )
 
-  // ── SSE 연결 (서버 MQTT 브리지) ──────────────────────────
-  // MQTT 직접 연결 대신 서버의 /api/v1/events SSE 스트림 사용
-  // → devtunnel 외부 접근에서도 정상 동작
+  // ── SSE 연결
   useEffect(() => {
     let es: EventSource | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -382,10 +547,10 @@ export default function MobileFinalPage() {
         if (!mounted) return
         try {
           const d = JSON.parse(event.data) as { topic?: string; payload?: string; type?: string }
-          if (d.type === "connected") return   // 초기 ping — 무시
+          if (d.type === "connected") return
           if (!d.topic || d.payload === undefined) return
           handleMessage(d.topic, d.payload)
-        } catch { /* JSON 파싱 실패 무시 */ }
+        } catch { /* 무시 */ }
       }
 
       es.onerror = () => {
@@ -394,13 +559,11 @@ export default function MobileFinalPage() {
         es?.close()
         es = null
         sseRef.current = null
-        // 5초 후 재연결
         reconnectTimer = setTimeout(connect, 5000)
       }
     }
 
     connect()
-
     return () => {
       mounted = false
       if (reconnectTimer) clearTimeout(reconnectTimer)
@@ -409,85 +572,106 @@ export default function MobileFinalPage() {
     }
   }, [handleMessage])
 
-  // ── 긴급정지 (REST API) ────────────────────────────────────
+  // ── 긴급정지
   const handleEmergencyConfirm = useCallback(() => {
     fetch(`${API_BASE}/api/v1/commands/emergency-stop`, {
-      method: "POST",
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command: "sr" }),
-    }).catch(() => { /* 네트워크 오류 — toast로 처리하지 않음 */ })
+      body:    JSON.stringify({ command: "sr" }),
+    }).catch(() => { /* 무시 */ })
     setEmergencyDone(true)
     setTimeout(() => setEmergencyDone(false), 4000)
   }, [])
 
-  // ── 파이프 흐름 ───────────────────────────────────────────
+  // ── 파이프 흐름
   const pipeFlows = useMemo(
     () => calcPipeFlows(state.valveRelayState, state.boosters.some((b) => b.isOn)),
     [state.valveRelayState, state.boosters]
   )
 
-  const mqttConnected = state.mqttStatus === "connected"
+  const hasError = state.inverters.some((inv) => inv.pumpStatus === "ERROR")
 
   return (
-    <div className="min-h-screen bg-[#06080F] pb-24 text-slate-100">
-
-      {/* 글로벌 스타일 */}
+    <div className="flex min-h-screen flex-col" style={{ background: "#06080F" }}>
+      {/* 글로벌 애니메이션 */}
       <style jsx global>{`
         .glass-card {
-          background: rgba(15, 23, 42, 0.5);
-          border: 1px solid rgba(148, 163, 184, 0.06);
-          border-radius: 16px;
+          background: rgba(15, 23, 42, 0.55);
+          border: 1px solid rgba(148, 163, 184, 0.07);
+          border-radius: 20px;
           backdrop-filter: blur(12px);
         }
         @keyframes pulse-glow {
           0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
+          50% { opacity: 0.35; }
+        }
+        @keyframes slide-up {
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .tab-enter {
+          animation: slide-up 0.22s ease-out;
         }
       `}</style>
 
-      {/* 인버터 에러 toast 알림 */}
+      {/* 에러 토스트 */}
       <ToastContainer toasts={toasts} onDismiss={handleDismissToast} />
-
-      {/* 긴급정지 토스트 */}
-      {emergencyDone && (
-        <div className="fixed left-1/2 top-16 z-50 -translate-x-1/2 rounded-xl border border-red-800/40 bg-red-950/90 px-5 py-2 font-mono text-[12px] font-semibold text-red-300 shadow-2xl backdrop-blur-lg">
-          EMERGENCY STOP SENT
-        </div>
-      )}
 
       {/* 헤더 */}
       <Header
         mqttStatus={state.mqttStatus}
         currentTime={currentTime}
-        isManualMode={state.isManualMode}
+        activeTab={activeTab}
         currentValveMode={state.currentValveMode}
+        isManualMode={state.isManualMode}
       />
 
-      {/* 메인 콘텐츠 */}
-      <main className="space-y-3 px-3 pt-3">
-        <ProcessStatus
-          progress={state.progress}
-          inverters={state.inverters}
-          boosters={state.boosters}
-          extractionPct={extractionPct}
-          housingPct={housingPct}
-        />
-
-        <HousingValveMap
-          relayState={state.valveRelayState}
-          pipeFlows={pipeFlows}
-        />
-
-        <PumpCards
-          inverters={state.inverters}
-          boosters={state.boosters}
-        />
+      {/* 탭 콘텐츠 */}
+      <main className="flex-1 overflow-auto pb-20">
+        {activeTab === "process" && (
+          <div key="process" className="tab-enter px-3 pt-3">
+            <ProcessStatus
+              progress={state.progress}
+              inverters={state.inverters}
+              boosters={state.boosters}
+              extractionPct={extractionPct}
+              housingPct={housingPct}
+            />
+          </div>
+        )}
+        {activeTab === "valve" && (
+          <div key="valve" className="tab-enter">
+            <HousingValveMap
+              relayState={state.valveRelayState}
+              pipeFlows={pipeFlows}
+            />
+          </div>
+        )}
+        {activeTab === "pump" && (
+          <div key="pump" className="tab-enter px-3 pt-3">
+            <PumpCards
+              inverters={state.inverters}
+              boosters={state.boosters}
+            />
+          </div>
+        )}
+        {activeTab === "control" && (
+          <div key="control" className="tab-enter">
+            <ControlTab
+              mqttStatus={state.mqttStatus}
+              progress={state.progress}
+              onEmergencyStop={handleEmergencyConfirm}
+              emergencyDone={emergencyDone}
+            />
+          </div>
+        )}
       </main>
 
-      {/* 하단 긴급정지 */}
-      <ControlBar
-        mqttConnected={mqttConnected}
-        onEmergencyStop={handleEmergencyConfirm}
+      {/* 하단 탭바 */}
+      <BottomNav
+        activeTab={activeTab}
+        onChange={setActiveTab}
+        hasAlert={hasError}
       />
     </div>
   )
