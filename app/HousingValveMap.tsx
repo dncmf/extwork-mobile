@@ -107,22 +107,22 @@ export default function HousingValveMap({ relayState, pipeFlows: pf }: HousingVa
   const activeCount = v.filter(Boolean).length
 
   return (
-    <div className="glass-card overflow-hidden p-3">
+    <div className="overflow-hidden" style={{ background: "rgba(6,8,15,0.8)", minHeight: "calc(100vh - 120px)" }}>
       {/* 헤더 */}
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between px-2 pt-4">
         <div className="flex items-center gap-2 px-1">
           <div className="h-px flex-1 bg-slate-800" />
-          <span className="text-[9px] font-medium uppercase tracking-[0.15em] text-slate-600">
+          <span className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">
             P&amp;ID
           </span>
           <div className="h-px flex-1 bg-slate-800" />
         </div>
-        <span className="font-mono text-[9px] text-slate-600">
+        <span className="font-mono text-xs font-medium text-slate-400">
           {activeCount}/8
         </span>
       </div>
 
-      <svg viewBox="0 0 320 255" className="w-full" style={{ maxHeight: 220 }}>
+      <svg viewBox="0 0 320 255" className="w-full" style={{ maxHeight: "calc(100vh - 200px)", minHeight: 300 }}>
         <defs>
           <style>{`
             @keyframes mf-dash { to { stroke-dashoffset: -20; } }
@@ -183,15 +183,15 @@ export default function HousingValveMap({ relayState, pipeFlows: pf }: HousingVa
       <div className="mt-1 flex items-center justify-center gap-4 px-1">
         <div className="flex items-center gap-1">
           <div className="h-[3px] w-4 rounded-full" style={{ backgroundColor: C.PIPE_FLOW }} />
-          <span className="text-[8px] text-slate-600">흐름</span>
+          <span className="text-xs text-slate-500">흐름</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: C.DOT_ON }} />
-          <span className="text-[8px] text-slate-600">ON</span>
+          <span className="text-xs text-slate-500">ON</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: C.DOT_OFF }} />
-          <span className="text-[8px] text-slate-600">OFF</span>
+          <span className="text-xs text-slate-500">OFF</span>
         </div>
       </div>
     </div>
