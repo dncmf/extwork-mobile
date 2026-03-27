@@ -168,8 +168,17 @@ function Header({
 }
 
 // ============================================================
-// 제어 탭 — 긴급정지 + 상태
+// 제어 탭 — 공정 제어 + 긴급정지
 // ============================================================
+interface Sequence { id: number; name: string; description: string }
+interface JobStatus {
+  status: "idle" | "running" | "paused" | "completed" | "error"
+  sequenceName?: string
+  currentStepIndex?: number
+  totalSteps?: number
+  remainingSec?: number
+}
+
 function ControlTab({
   mqttStatus,
   progress,
@@ -181,155 +190,257 @@ function ControlTab({
   onEmergencyStop: () => void
   emergencyDone: boolean
 }) {
-  const [confirm, setConfirm] = useState(false)
-  const isConnected = mqttStatus === "connected"
-  const isRunning   = progress?.isRunning ?? false
+  const [confirm,     setConfirm]     = useState(false)
+  const [sequences,   setSequences]   = useState<Sequence[]>([])
+  const [selectedId,  setSelectedId]  = useState<number | null>(null)
+  const [jobStatus,   setJobStatus]   = useState<JobStatus>({ status: "idle" })
+  const [actionMsg,   setActionMsg]   = useState("")
+  const [loading,     setLoading]     = useState(false)
 
-  const handlePress = () => {
+  const isConnected = mqttStatus === "connected"
+  const isRunning   = jobStatus.status === "running"
+  const isPaused    = jobStatus.status === "paused"
+
+  // 시퀀스 목록 로드
+  useEffect(() => {
+    fetch(`${API_BASE}/api/v1/sequences`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) setSequences(d.data.filter((s: Sequence & { is_active: number }) => s.is_active === 1))
+      })
+      .catch(() => {})
+  }, [])
+
+  // Job Engine 상태 폴링 (3s)
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/job-engine`, { cache: "no-store" })
+        if (!r.ok) return
+        const d = await r.json()
+        if (d.success) {
+          setJobStatus({
+            status:           d.data.status,
+            sequenceName:     d.data.sequenceName,
+            currentStepIndex: d.data.currentStepIndex,
+            totalSteps:       d.data.totalSteps,
+            remainingSec:     d.data.remainingSec,
+          })
+        }
+      } catch {}
+    }
+    poll()
+    const tid = setInterval(poll, 3000)
+    return () => clearInterval(tid)
+  }, [])
+
+  const callAction = async (action: string, extra?: object) => {
+    setLoading(true)
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/job-engine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...extra }),
+      })
+      const d = await r.json()
+      setActionMsg(d.success ? "완료" : d.error ?? "오류")
+    } catch {
+      setActionMsg("서버 오류")
+    }
+    setLoading(false)
+    setTimeout(() => setActionMsg(""), 2500)
+  }
+
+  const handleEmPress = () => {
     if (!confirm) { setConfirm(true); return }
     onEmergencyStop()
     setConfirm(false)
   }
-
   useEffect(() => {
     if (!confirm) return
     const t = setTimeout(() => setConfirm(false), 3000)
     return () => clearTimeout(t)
   }, [confirm])
 
-  return (
-    <div className="flex min-h-full flex-col items-center justify-start gap-6 px-5 pt-8 pb-32">
+  const fmtSec = (sec?: number) => {
+    if (!sec) return "--:--"
+    const m = Math.floor(sec / 60), s = sec % 60
+    return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`
+  }
 
-      {/* 연결 상태 카드 */}
-      <div
-        className="w-full rounded-2xl p-5"
-        style={{
-          background: "rgba(15,23,42,0.6)",
-          border: "1px solid rgba(148,163,184,0.08)",
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-slate-400">서버 연결</span>
-          <div className="flex items-center gap-2">
-            <div
-              className="h-2.5 w-2.5 rounded-full"
-              style={{
-                backgroundColor:
-                  isConnected ? "#22d3ee" :
-                  mqttStatus === "connecting" ? "#fbbf24" : "#ef4444",
-                boxShadow: isConnected ? "0 0 10px #22d3ee80" : "none",
-                animation: mqttStatus === "connecting" ? "pulse-glow 1s infinite" : "none",
-              }}
-            />
-            <span
-              className="text-sm font-semibold"
-              style={{ color: isConnected ? "#22d3ee" : "#ef4444" }}
-            >
-              {isConnected ? "연결됨" : mqttStatus === "connecting" ? "연결 중..." : "끊김"}
-            </span>
-          </div>
+  const statusColor = isRunning ? "#34d399" : isPaused ? "#fbbf24" : "#475569"
+  const statusLabel = isRunning ? "실행 중" : isPaused ? "일시정지" : jobStatus.status === "completed" ? "완료" : "유휴"
+
+  return (
+    <div className="flex flex-col gap-4 px-4 pt-5 pb-32">
+
+      {/* 연결 상태 */}
+      <div className="flex items-center justify-between rounded-2xl px-4 py-3"
+        style={{ background: "rgba(15,23,42,0.5)", border: "1px solid rgba(148,163,184,0.07)" }}>
+        <span className="text-sm text-slate-400">서버 연결</span>
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full"
+            style={{
+              backgroundColor: isConnected ? "#22d3ee" : mqttStatus === "connecting" ? "#fbbf24" : "#ef4444",
+              boxShadow: isConnected ? "0 0 8px #22d3ee80" : "none",
+            }} />
+          <span className="text-sm font-semibold" style={{ color: isConnected ? "#22d3ee" : "#ef4444" }}>
+            {isConnected ? "연결됨" : mqttStatus === "connecting" ? "연결 중..." : "끊김"}
+          </span>
         </div>
       </div>
 
-      {/* 공정 상태 카드 */}
-      <div
-        className="w-full rounded-2xl p-5"
+      {/* 현재 실행 중인 공정 상태 */}
+      <div className="rounded-2xl p-4"
         style={{
-          background: "rgba(15,23,42,0.6)",
-          border: `1px solid ${isRunning ? "rgba(52,211,153,0.2)" : "rgba(148,163,184,0.08)"}`,
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-slate-400">공정 상태</span>
+          background: "rgba(15,23,42,0.55)",
+          border: isRunning ? "1.5px solid rgba(52,211,153,0.2)" : isPaused ? "1.5px solid rgba(251,191,36,0.2)" : "1px solid rgba(148,163,184,0.07)",
+        }}>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs uppercase tracking-widest text-slate-500">공정 상태</span>
           <div className="flex items-center gap-2">
-            {isRunning && (
-              <div
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: "#34d399", animation: "pulse-glow 1.5s infinite" }}
-              />
+            {(isRunning || isPaused) && (
+              <div className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: statusColor, animation: isRunning ? "pulse-glow 1.5s infinite" : "none" }} />
             )}
-            <span
-              className="text-sm font-semibold"
-              style={{ color: isRunning ? "#34d399" : "#64748b" }}
-            >
-              {isRunning ? "실행 중" : "유휴"}
-            </span>
+            <span className="text-sm font-bold" style={{ color: statusColor }}>{statusLabel}</span>
           </div>
         </div>
-        {isRunning && progress && (
-          <div className="mt-3">
-            <div className="mb-1.5 flex justify-between text-xs text-slate-500">
-              <span>{progress.processInfo}</span>
-              <span>{Math.round(progress.pct)}%</span>
+        {jobStatus.sequenceName && (
+          <div className="mb-3">
+            <p className="font-semibold text-slate-200">{jobStatus.sequenceName}</p>
+            <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
+              {jobStatus.totalSteps != null && (
+                <span>스텝 {(jobStatus.currentStepIndex ?? 0) + 1}/{jobStatus.totalSteps}</span>
+              )}
+              {jobStatus.remainingSec != null && (
+                <span>잔여 {fmtSec(jobStatus.remainingSec)}</span>
+              )}
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: "rgba(30,41,59,0.8)" }}>
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${progress.pct}%`,
-                  background: "linear-gradient(90deg, #34d399, #22d3ee)",
-                }}
-              />
-            </div>
+          </div>
+        )}
+        {/* 실행 중 진행 바 */}
+        {(isRunning || isPaused) && (
+          <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: "rgba(15,23,42,0.8)" }}>
+            <div className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: jobStatus.totalSteps
+                  ? `${(((jobStatus.currentStepIndex ?? 0) + 1) / jobStatus.totalSteps) * 100}%`
+                  : "0%",
+                background: isRunning ? "linear-gradient(90deg, #34d399, #22d3ee)" : "#fbbf24",
+              }} />
           </div>
         )}
       </div>
 
-      {/* 긴급정지 버튼 */}
-      <div className="w-full">
-        {emergencyDone ? (
-          <div
-            className="flex w-full items-center justify-center rounded-2xl py-6"
-            style={{
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.3)",
-            }}
-          >
-            <span className="font-mono text-base font-bold tracking-widest text-red-400">
-              ✓ 긴급정지 전송됨
-            </span>
-          </div>
-        ) : (
-          <button
-            onClick={handlePress}
-            className="w-full rounded-2xl py-6 transition-all duration-200 active:scale-95"
-            style={{
-              background: confirm
-                ? "rgba(239,68,68,0.25)"
-                : "rgba(239,68,68,0.12)",
-              border: confirm
-                ? "1.5px solid rgba(239,68,68,0.7)"
-                : "1.5px solid rgba(239,68,68,0.3)",
-              boxShadow: confirm ? "0 0 24px rgba(239,68,68,0.2)" : "none",
-              cursor: "pointer",
-            }}
-          >
-            <div className="flex flex-col items-center gap-1.5">
-              <span
-                className="font-mono text-xl font-black tracking-widest"
-                style={{ color: "#ef4444" }}
-              >
-                EMERGENCY STOP
-              </span>
-              {confirm && (
-                <span className="text-xs font-medium text-red-400 animate-pulse">
-                  한 번 더 누르면 전송됩니다
-                </span>
-              )}
-              {!confirm && (
-                <span className="text-xs text-slate-600">
-                  탭하여 긴급정지
-                </span>
-              )}
-            </div>
+      {/* 공정 제어 버튼 */}
+      <div className="grid grid-cols-2 gap-3">
+        {/* 일시정지 / 재개 */}
+        {isRunning && (
+          <button onClick={() => callAction("pause")} disabled={loading}
+            className="rounded-2xl py-4 transition-all active:scale-95"
+            style={{ background: "rgba(251,191,36,0.1)", border: "1.5px solid rgba(251,191,36,0.25)", cursor: "pointer" }}>
+            <span className="font-mono text-sm font-bold text-yellow-400">⏸ 일시정지</span>
+          </button>
+        )}
+        {isPaused && (
+          <button onClick={() => callAction("resume")} disabled={loading}
+            className="rounded-2xl py-4 transition-all active:scale-95"
+            style={{ background: "rgba(52,211,153,0.1)", border: "1.5px solid rgba(52,211,153,0.25)", cursor: "pointer" }}>
+            <span className="font-mono text-sm font-bold text-emerald-400">▶ 재개</span>
+          </button>
+        )}
+        {/* 정지 */}
+        {(isRunning || isPaused) && (
+          <button onClick={() => callAction("stop")} disabled={loading}
+            className="rounded-2xl py-4 transition-all active:scale-95"
+            style={{ background: "rgba(239,68,68,0.08)", border: "1.5px solid rgba(239,68,68,0.2)", cursor: "pointer" }}>
+            <span className="font-mono text-sm font-bold text-red-400">■ 정지</span>
           </button>
         )}
       </div>
 
-      {/* 안내 */}
-      <p className="text-center text-xs leading-relaxed text-slate-700">
-        긴급정지 시 모든 펌프와 밸브가<br />즉시 안전 상태로 전환됩니다.
-      </p>
+      {/* 시퀀스 선택 + 시작 */}
+      {!isRunning && !isPaused && (
+        <div className="rounded-2xl p-4"
+          style={{ background: "rgba(15,23,42,0.55)", border: "1px solid rgba(148,163,184,0.07)" }}>
+          <p className="mb-3 text-xs uppercase tracking-widest text-slate-500">공정 선택</p>
+
+          {/* 시퀀스 목록 */}
+          <div className="mb-4 max-h-52 overflow-y-auto space-y-1.5"
+            style={{ scrollbarWidth: "none" }}>
+            {sequences.map(seq => (
+              <button key={seq.id} onClick={() => setSelectedId(seq.id)}
+                className="w-full rounded-xl px-3 py-2.5 text-left transition-all active:scale-95"
+                style={{
+                  background: selectedId === seq.id ? "rgba(34,211,238,0.1)" : "rgba(15,23,42,0.4)",
+                  border: selectedId === seq.id ? "1.5px solid rgba(34,211,238,0.35)" : "1px solid rgba(148,163,184,0.06)",
+                  cursor: "pointer",
+                }}>
+                <span className="block text-sm font-semibold" style={{ color: selectedId === seq.id ? "#22d3ee" : "#94a3b8" }}>
+                  {seq.name}
+                </span>
+                {seq.description && (
+                  <span className="text-xs text-slate-600">{seq.description}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* 시작 버튼 */}
+          <button
+            onClick={() => selectedId && callAction("start", { sequenceId: selectedId })}
+            disabled={!selectedId || loading}
+            className="w-full rounded-2xl py-4 transition-all active:scale-95"
+            style={{
+              background: selectedId ? "rgba(34,211,238,0.12)" : "rgba(15,23,42,0.3)",
+              border: selectedId ? "1.5px solid rgba(34,211,238,0.35)" : "1px solid rgba(148,163,184,0.05)",
+              cursor: selectedId ? "pointer" : "not-allowed",
+              opacity: selectedId ? 1 : 0.5,
+            }}>
+            <span className="font-mono text-base font-bold" style={{ color: selectedId ? "#22d3ee" : "#475569" }}>
+              {loading ? "처리 중..." : "▶ 공정 시작"}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* 액션 결과 메시지 */}
+      {actionMsg && (
+        <div className="rounded-xl py-2.5 text-center"
+          style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)" }}>
+          <span className="text-sm font-medium text-cyan-400">{actionMsg}</span>
+        </div>
+      )}
+
+      {/* 긴급정지 */}
+      <div className="mt-2">
+        {emergencyDone ? (
+          <div className="flex w-full items-center justify-center rounded-2xl py-5"
+            style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)" }}>
+            <span className="font-mono text-base font-bold tracking-widest text-red-400">✓ 긴급정지 전송됨</span>
+          </div>
+        ) : (
+          <button onClick={handleEmPress}
+            className="w-full rounded-2xl py-5 transition-all duration-200 active:scale-95"
+            style={{
+              background: confirm ? "rgba(239,68,68,0.25)" : "rgba(239,68,68,0.1)",
+              border: confirm ? "1.5px solid rgba(239,68,68,0.7)" : "1.5px solid rgba(239,68,68,0.25)",
+              boxShadow: confirm ? "0 0 24px rgba(239,68,68,0.2)" : "none",
+              cursor: "pointer",
+            }}>
+            <div className="flex flex-col items-center gap-1">
+              <span className="font-mono text-lg font-black tracking-widest" style={{ color: "#ef4444" }}>
+                EMERGENCY STOP
+              </span>
+              {confirm
+                ? <span className="animate-pulse text-xs font-medium text-red-400">한 번 더 누르면 전송됩니다</span>
+                : <span className="text-xs text-slate-600">탭하여 긴급정지</span>
+              }
+            </div>
+          </button>
+        )}
+      </div>
     </div>
   )
 }
