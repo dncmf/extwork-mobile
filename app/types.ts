@@ -3,10 +3,10 @@
 
 export type MqttStatus = "connected" | "connecting" | "disconnected"
 
+// 탭 ID
+export type TabId = "process" | "valve" | "pump" | "control"
+
 // health.mode: "wifi" | "ble_only" | "offline"
-//   - "wifi"     : Wi-Fi + MQTT 정상
-//   - "ble_only" : Wi-Fi 끊김, BLE 폴백 동작 중
-//   - "offline"  : 연결 없음
 export interface InverterHealth {
   mode: "wifi" | "ble_only" | "offline"
 }
@@ -24,9 +24,6 @@ export interface BoosterState {
 }
 
 // inverter/state 의 mode 필드
-//   "S" — Simultaneous (동시)
-//   "O" — Overlap     (오버랩)
-//   "C" — Sequential  (순차)
 export type ProcessMode = "S" | "O" | "C"
 
 export const PROCESS_MODE_LABEL: Record<ProcessMode, string> = {
@@ -36,12 +33,12 @@ export const PROCESS_MODE_LABEL: Record<ProcessMode, string> = {
 }
 
 export interface ProcessProgress {
-  pct: number          // 0~100 계산된 진행률
-  processInfo: string  // 공정명/설명
-  elapsedTime?: number  // 초
-  remainingTime?: number // 초
+  pct: number
+  processInfo: string
+  elapsedTime?: number
+  remainingTime?: number
   isRunning: boolean
-  mode?: ProcessMode   // "S" | "O" | "C" — inverter/state 의 mode 필드
+  mode?: ProcessMode
   rawMessage: string
 }
 
