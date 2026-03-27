@@ -26,6 +26,7 @@ const TOPICS = {
   INVERTER_STATE_GLOBAL: "dnature/factory/zone1/inverter/state",
   PROCESS_PROGRESS:      "dnature/factory/zone1/inverter/progress",
   INVERTER_ERROR:        "dnature/factory/zone1/inverter/error",
+  QUEUE_STATUS:          "dnature/factory/zone1/inverter/queue/status",
 }
 
 const INVERTER_COUNT = 6
@@ -50,6 +51,7 @@ function makeInitialState(): AppState {
       { id: 2, isOn: false },
     ],
     progress: null,
+    queueStatus: null as { waiting: number; active: boolean } | null,
   }
 }
 
@@ -745,6 +747,16 @@ export default function MobilePage() {
       if (topic === TOPICS.INVERTER_ERROR) {
         const item = makeToastItem(message)
         setToasts((prev) => [item, ...prev].slice(0, 3))
+        return
+      }
+
+      if (topic === TOPICS.QUEUE_STATUS) {
+        try {
+          const d = JSON.parse(message)
+          const waiting = d.waiting ?? d.queue_size ?? 0
+          const active  = d.active  ?? d.is_running ?? false
+          setState((prev) => ({ ...prev, queueStatus: { waiting, active } }))
+        } catch { /* 무시 */ }
         return
       }
 
