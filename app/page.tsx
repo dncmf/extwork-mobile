@@ -271,118 +271,212 @@ function ControlTab({
   const statusColor = isRunning ? "#34d399" : isPaused ? "#fbbf24" : "#475569"
   const statusLabel = isRunning ? "실행 중" : isPaused ? "일시정지" : jobStatus.status === "completed" ? "완료" : "유휴"
 
-  return (
-    <div className="flex flex-col gap-4 px-4 pt-5 pb-32">
+  const stepPct = jobStatus.totalSteps
+    ? Math.round(((jobStatus.currentStepIndex ?? 0) + 1) / jobStatus.totalSteps * 100)
+    : 0
 
-      {/* 연결 상태 */}
-      <div className="flex items-center justify-between rounded-2xl px-4 py-3"
-        style={{ background: "rgba(15,23,42,0.5)", border: "1px solid rgba(148,163,184,0.07)" }}>
-        <span className="text-sm text-slate-400">서버 연결</span>
+  return (
+    <div className="flex flex-col gap-3 px-4 pt-4 pb-32">
+
+      {/* 연결 상태 — 슬림 배너 */}
+      <div className="flex items-center justify-between rounded-xl px-4 py-2.5"
+        style={{
+          background: isConnected ? "rgba(34,211,238,0.05)" : "rgba(239,68,68,0.05)",
+          border: isConnected ? "1px solid rgba(34,211,238,0.15)" : "1px solid rgba(239,68,68,0.2)",
+        }}>
         <div className="flex items-center gap-2">
           <div className="h-2 w-2 rounded-full"
             style={{
               backgroundColor: isConnected ? "#22d3ee" : mqttStatus === "connecting" ? "#fbbf24" : "#ef4444",
-              boxShadow: isConnected ? "0 0 8px #22d3ee80" : "none",
+              boxShadow: isConnected ? "0 0 8px #22d3ee" : "none",
+              animation: isConnected ? "pulse-glow 2s ease-in-out infinite" : "none",
             }} />
-          <span className="text-sm font-semibold" style={{ color: isConnected ? "#22d3ee" : "#ef4444" }}>
-            {isConnected ? "연결됨" : mqttStatus === "connecting" ? "연결 중..." : "끊김"}
+          <span className="font-mono text-xs uppercase tracking-widest"
+            style={{ color: isConnected ? "#22d3ee" : "#ef4444" }}>
+            {isConnected ? "SERVER CONNECTED" : mqttStatus === "connecting" ? "CONNECTING..." : "DISCONNECTED"}
           </span>
         </div>
+        <span className="font-mono text-[10px] text-slate-600">SSE</span>
       </div>
 
-      {/* 현재 실행 중인 공정 상태 */}
-      <div className="rounded-2xl p-4"
+      {/* 공정 상태 카드 */}
+      <div className="rounded-2xl p-5"
         style={{
-          background: "rgba(15,23,42,0.55)",
-          border: isRunning ? "1.5px solid rgba(52,211,153,0.2)" : isPaused ? "1.5px solid rgba(251,191,36,0.2)" : "1px solid rgba(148,163,184,0.07)",
+          background: isRunning
+            ? "rgba(52,211,153,0.05)"
+            : isPaused
+            ? "rgba(251,191,36,0.05)"
+            : "rgba(15,23,42,0.6)",
+          border: isRunning
+            ? "1.5px solid rgba(52,211,153,0.25)"
+            : isPaused
+            ? "1.5px solid rgba(251,191,36,0.25)"
+            : "1px solid rgba(148,163,184,0.08)",
+          boxShadow: isRunning
+            ? "0 0 30px rgba(52,211,153,0.06)"
+            : isPaused
+            ? "0 0 30px rgba(251,191,36,0.06)"
+            : "none",
         }}>
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs uppercase tracking-widest text-slate-500">공정 상태</span>
-          <div className="flex items-center gap-2">
+
+        {/* 상태 헤더 */}
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
             {(isRunning || isPaused) && (
-              <div className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: statusColor, animation: isRunning ? "pulse-glow 1.5s infinite" : "none" }} />
+              <div className="h-3 w-3 rounded-full flex-shrink-0"
+                style={{
+                  backgroundColor: statusColor,
+                  boxShadow: `0 0 12px ${statusColor}`,
+                  animation: isRunning ? "pulse-glow 1.2s ease-in-out infinite" : "none",
+                }} />
             )}
-            <span className="text-sm font-bold" style={{ color: statusColor }}>{statusLabel}</span>
+            <span className="font-mono text-xs uppercase tracking-widest text-slate-500">공정 상태</span>
           </div>
+          <span className="font-mono text-base font-black tracking-wide"
+            style={{ color: statusColor }}>
+            {statusLabel}
+          </span>
         </div>
-        {jobStatus.sequenceName && (
-          <div className="mb-3">
-            <p className="font-semibold text-slate-200">{jobStatus.sequenceName}</p>
-            <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
+
+        {/* 시퀀스 이름 */}
+        {jobStatus.sequenceName ? (
+          <div className="mb-4">
+            <p className="text-base font-bold text-slate-100">{jobStatus.sequenceName}</p>
+            <div className="mt-1.5 flex items-center gap-4 font-mono text-[11px] text-slate-500">
               {jobStatus.totalSteps != null && (
-                <span>스텝 {(jobStatus.currentStepIndex ?? 0) + 1}/{jobStatus.totalSteps}</span>
+                <span>STEP {(jobStatus.currentStepIndex ?? 0) + 1} / {jobStatus.totalSteps}</span>
               )}
               {jobStatus.remainingSec != null && (
                 <span>잔여 {fmtSec(jobStatus.remainingSec)}</span>
               )}
             </div>
           </div>
+        ) : (
+          <p className="mb-4 text-sm text-slate-600">
+            {isRunning || isPaused ? "공정 실행 중..." : "대기 중 — 아래에서 공정을 선택하세요"}
+          </p>
         )}
-        {/* 실행 중 진행 바 */}
+
+        {/* 진행 바 */}
         {(isRunning || isPaused) && (
-          <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: "rgba(15,23,42,0.8)" }}>
-            <div className="h-full rounded-full transition-all duration-500"
-              style={{
-                width: jobStatus.totalSteps
-                  ? `${(((jobStatus.currentStepIndex ?? 0) + 1) / jobStatus.totalSteps) * 100}%`
-                  : "0%",
-                background: isRunning ? "linear-gradient(90deg, #34d399, #22d3ee)" : "#fbbf24",
-              }} />
+          <div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full"
+              style={{ background: "rgba(15,23,42,0.8)" }}>
+              <div className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${stepPct}%`,
+                  background: isRunning
+                    ? "linear-gradient(90deg, #34d399, #22d3ee)"
+                    : "linear-gradient(90deg, #f59e0b, #fbbf24)",
+                  boxShadow: isRunning ? "0 0 10px rgba(34,211,238,0.4)" : "none",
+                }} />
+            </div>
+            <div className="mt-1.5 flex justify-between font-mono text-[10px] text-slate-600">
+              <span>0%</span>
+              <span className="font-bold" style={{ color: statusColor }}>{stepPct}%</span>
+              <span>100%</span>
+            </div>
           </div>
         )}
       </div>
 
       {/* 공정 제어 버튼 */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* 일시정지 / 재개 */}
-        {isRunning && (
-          <button onClick={() => callAction("pause")} disabled={loading}
-            className="rounded-2xl py-4 transition-all active:scale-95"
-            style={{ background: "rgba(251,191,36,0.1)", border: "1.5px solid rgba(251,191,36,0.25)", cursor: "pointer" }}>
-            <span className="font-mono text-sm font-bold text-yellow-400">⏸ 일시정지</span>
-          </button>
-        )}
-        {isPaused && (
-          <button onClick={() => callAction("resume")} disabled={loading}
-            className="rounded-2xl py-4 transition-all active:scale-95"
-            style={{ background: "rgba(52,211,153,0.1)", border: "1.5px solid rgba(52,211,153,0.25)", cursor: "pointer" }}>
-            <span className="font-mono text-sm font-bold text-emerald-400">▶ 재개</span>
-          </button>
-        )}
-        {/* 정지 */}
-        {(isRunning || isPaused) && (
+      {(isRunning || isPaused) && (
+        <div className="grid grid-cols-2 gap-3">
+          {isRunning && (
+            <button onClick={() => callAction("pause")} disabled={loading}
+              className="rounded-2xl py-5 transition-all active:scale-[0.97]"
+              style={{
+                background: "rgba(251,191,36,0.08)",
+                border: "1.5px solid rgba(251,191,36,0.3)",
+                cursor: "pointer",
+              }}>
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xl">⏸</span>
+                <span className="font-mono text-xs font-bold text-yellow-400">일시정지</span>
+              </div>
+            </button>
+          )}
+          {isPaused && (
+            <button onClick={() => callAction("resume")} disabled={loading}
+              className="rounded-2xl py-5 transition-all active:scale-[0.97]"
+              style={{
+                background: "rgba(52,211,153,0.08)",
+                border: "1.5px solid rgba(52,211,153,0.3)",
+                cursor: "pointer",
+              }}>
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xl">▶</span>
+                <span className="font-mono text-xs font-bold text-emerald-400">재개</span>
+              </div>
+            </button>
+          )}
           <button onClick={() => callAction("stop")} disabled={loading}
-            className="rounded-2xl py-4 transition-all active:scale-95"
-            style={{ background: "rgba(239,68,68,0.08)", border: "1.5px solid rgba(239,68,68,0.2)", cursor: "pointer" }}>
-            <span className="font-mono text-sm font-bold text-red-400">■ 정지</span>
+            className="rounded-2xl py-5 transition-all active:scale-[0.97]"
+            style={{
+              background: "rgba(239,68,68,0.08)",
+              border: "1.5px solid rgba(239,68,68,0.25)",
+              cursor: "pointer",
+            }}>
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-xl">⏹</span>
+              <span className="font-mono text-xs font-bold text-red-400">정지</span>
+            </div>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* 시퀀스 선택 + 시작 */}
       {!isRunning && !isPaused && (
         <div className="rounded-2xl p-4"
-          style={{ background: "rgba(15,23,42,0.55)", border: "1px solid rgba(148,163,184,0.07)" }}>
-          <p className="mb-3 text-xs uppercase tracking-widest text-slate-500">공정 선택</p>
+          style={{ background: "rgba(15,23,42,0.6)", border: "1px solid rgba(148,163,184,0.08)" }}>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="font-mono text-xs uppercase tracking-widest text-slate-500">공정 선택</p>
+            <span className="font-mono text-[10px] text-slate-700">{sequences.length}개</span>
+          </div>
 
           {/* 시퀀스 목록 */}
-          <div className="mb-4 max-h-52 overflow-y-auto space-y-1.5"
+          <div className="mb-4 max-h-56 overflow-y-auto space-y-2"
             style={{ scrollbarWidth: "none" }}>
-            {sequences.map(seq => (
+            {sequences.length === 0 ? (
+              <p className="py-4 text-center text-xs text-slate-700">시퀀스 로딩 중...</p>
+            ) : sequences.map((seq, idx) => (
               <button key={seq.id} onClick={() => setSelectedId(seq.id)}
-                className="w-full rounded-xl px-3 py-2.5 text-left transition-all active:scale-95"
+                className="w-full rounded-xl px-4 py-3 text-left transition-all active:scale-[0.98]"
                 style={{
-                  background: selectedId === seq.id ? "rgba(34,211,238,0.1)" : "rgba(15,23,42,0.4)",
-                  border: selectedId === seq.id ? "1.5px solid rgba(34,211,238,0.35)" : "1px solid rgba(148,163,184,0.06)",
+                  background: selectedId === seq.id
+                    ? "rgba(34,211,238,0.1)"
+                    : "rgba(15,23,42,0.45)",
+                  border: selectedId === seq.id
+                    ? "1.5px solid rgba(34,211,238,0.4)"
+                    : "1px solid rgba(148,163,184,0.07)",
                   cursor: "pointer",
+                  boxShadow: selectedId === seq.id ? "0 0 16px rgba(34,211,238,0.08)" : "none",
                 }}>
-                <span className="block text-sm font-semibold" style={{ color: selectedId === seq.id ? "#22d3ee" : "#94a3b8" }}>
-                  {seq.name}
-                </span>
-                {seq.description && (
-                  <span className="text-xs text-slate-600">{seq.description}</span>
-                )}
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex-shrink-0 rounded-lg px-2 py-0.5 font-mono text-[9px] font-bold"
+                    style={{
+                      background: selectedId === seq.id ? "rgba(34,211,238,0.2)" : "rgba(148,163,184,0.08)",
+                      color: selectedId === seq.id ? "#22d3ee" : "#475569",
+                    }}>
+                    {String(idx + 1).padStart(2, "0")}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold"
+                      style={{ color: selectedId === seq.id ? "#e2e8f0" : "#94a3b8" }}>
+                      {seq.name}
+                    </span>
+                    {seq.description && (
+                      <span className="mt-0.5 block text-[11px] text-slate-600"
+                        style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {seq.description}
+                      </span>
+                    )}
+                  </div>
+                  {selectedId === seq.id && (
+                    <span className="mt-0.5 flex-shrink-0 text-[10px]" style={{ color: "#22d3ee" }}>✓</span>
+                  )}
+                </div>
               </button>
             ))}
           </div>
@@ -391,51 +485,76 @@ function ControlTab({
           <button
             onClick={() => selectedId && callAction("start", { sequenceId: selectedId })}
             disabled={!selectedId || loading}
-            className="w-full rounded-2xl py-4 transition-all active:scale-95"
+            className="w-full rounded-2xl py-5 transition-all active:scale-[0.97]"
             style={{
-              background: selectedId ? "rgba(34,211,238,0.12)" : "rgba(15,23,42,0.3)",
-              border: selectedId ? "1.5px solid rgba(34,211,238,0.35)" : "1px solid rgba(148,163,184,0.05)",
+              background: selectedId
+                ? "linear-gradient(135deg, rgba(34,211,238,0.15), rgba(34,211,238,0.08))"
+                : "rgba(15,23,42,0.3)",
+              border: selectedId
+                ? "1.5px solid rgba(34,211,238,0.4)"
+                : "1px solid rgba(148,163,184,0.05)",
               cursor: selectedId ? "pointer" : "not-allowed",
-              opacity: selectedId ? 1 : 0.5,
+              opacity: selectedId ? 1 : 0.45,
+              boxShadow: selectedId ? "0 0 20px rgba(34,211,238,0.1)" : "none",
             }}>
-            <span className="font-mono text-base font-bold" style={{ color: selectedId ? "#22d3ee" : "#475569" }}>
-              {loading ? "처리 중..." : "▶ 공정 시작"}
-            </span>
+            <div className="flex items-center justify-center gap-2">
+              <span className="text-base">{loading ? "⏳" : "▶"}</span>
+              <span className="font-mono text-base font-black tracking-wide"
+                style={{ color: selectedId ? "#22d3ee" : "#475569" }}>
+                {loading ? "처리 중..." : "공정 시작"}
+              </span>
+            </div>
           </button>
         </div>
       )}
 
       {/* 액션 결과 메시지 */}
       {actionMsg && (
-        <div className="rounded-xl py-2.5 text-center"
-          style={{ background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.2)" }}>
-          <span className="text-sm font-medium text-cyan-400">{actionMsg}</span>
+        <div className="rounded-xl px-4 py-3 text-center"
+          style={{
+            background: "rgba(34,211,238,0.06)",
+            border: "1px solid rgba(34,211,238,0.2)",
+          }}>
+          <span className="font-mono text-sm font-medium text-cyan-400">{actionMsg}</span>
         </div>
       )}
 
       {/* 긴급정지 */}
-      <div className="mt-2">
+      <div className="mt-1">
         {emergencyDone ? (
-          <div className="flex w-full items-center justify-center rounded-2xl py-5"
-            style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)" }}>
-            <span className="font-mono text-base font-bold tracking-widest text-red-400">✓ 긴급정지 전송됨</span>
+          <div className="flex w-full items-center justify-center gap-3 rounded-2xl py-5"
+            style={{
+              background: "rgba(239,68,68,0.08)",
+              border: "1px solid rgba(239,68,68,0.3)",
+            }}>
+            <span className="text-base">✓</span>
+            <span className="font-mono text-sm font-bold tracking-widest text-red-400">긴급정지 전송됨</span>
           </div>
         ) : (
           <button onClick={handleEmPress}
-            className="w-full rounded-2xl py-5 transition-all duration-200 active:scale-95"
+            className="w-full rounded-2xl py-6 transition-all duration-200 active:scale-[0.97]"
             style={{
-              background: confirm ? "rgba(239,68,68,0.25)" : "rgba(239,68,68,0.1)",
-              border: confirm ? "1.5px solid rgba(239,68,68,0.7)" : "1.5px solid rgba(239,68,68,0.25)",
-              boxShadow: confirm ? "0 0 24px rgba(239,68,68,0.2)" : "none",
+              background: confirm
+                ? "rgba(239,68,68,0.2)"
+                : "rgba(239,68,68,0.07)",
+              border: confirm
+                ? "2px solid rgba(239,68,68,0.8)"
+                : "1.5px solid rgba(239,68,68,0.2)",
+              boxShadow: confirm
+                ? "0 0 40px rgba(239,68,68,0.25), inset 0 0 20px rgba(239,68,68,0.05)"
+                : "0 0 20px rgba(239,68,68,0.05)",
               cursor: "pointer",
             }}>
-            <div className="flex flex-col items-center gap-1">
-              <span className="font-mono text-lg font-black tracking-widest" style={{ color: "#ef4444" }}>
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="font-mono text-xl font-black tracking-widest" style={{ color: "#ef4444" }}>
                 EMERGENCY STOP
               </span>
               {confirm
-                ? <span className="animate-pulse text-xs font-medium text-red-400">한 번 더 누르면 전송됩니다</span>
-                : <span className="text-xs text-slate-600">탭하여 긴급정지</span>
+                ? <span className="font-mono text-xs font-semibold text-red-400"
+                    style={{ animation: "pulse-glow 0.8s ease-in-out infinite" }}>
+                    한 번 더 탭 → 전송
+                  </span>
+                : <span className="text-[11px] text-slate-700">탭하여 긴급정지</span>
               }
             </div>
           </button>
