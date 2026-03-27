@@ -4,13 +4,14 @@
 // D-nature CMXF 모바일 UI — 미래지향적 미니멀 리디자인
 //
 // 화면 구조 (단일 스크롤):
-//   [헤더]              — 앱명 + MQTT 상태 + 시각 (슬림)
+//   [헤더]              — 앱명 + SSE 연결상태 + 시각 (슬림)
 //   [전체 공정 진행률]  — ProcessStatus
 //   [하우징 밸브 P&ID]  — HousingValveMap SVG
 //   [펌프 카드 그리드]  — PumpCards (3열)
 //   [하단 고정]         — ControlBar (EMERGENCY STOP)
 //
-// MQTT / REST 로직은 기존과 100% 동일 유지
+// 실시간 데이터: MQTT 직접 연결 대신 서버 SSE(/api/v1/events) 사용
+// → devtunnel 외부 접근에서도 정상 동작
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import ProcessStatus from "./ProcessStatus"
@@ -25,18 +26,13 @@ import { calcPipeFlows, unwrapN8n } from "./valve-flows"
 // 상수
 // ============================================================
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://10.0.1.2:3000"
-const POLL_MS  = 5000
 
+// SSE 수신 시 토픽 매칭에 사용 (구독 목록 불필요, 서버가 전체 브로드캐스트)
 const TOPICS = {
-  VALVE_STATE:            "dnature/factory/zone1/valve/status/SIM_VALVE_01",
-  INVERTER_STATE_GLOBAL:  "dnature/factory/zone1/inverter/state",
-  PROCESS_PROGRESS:       "dnature/factory/zone1/inverter/progress",
-  PROCESS_INPUT:          "dnature/factory/zone1/inverter/input",
-  INVERTER_ERROR:         "dnature/factory/zone1/inverter/error",
-  PUMP_SENSOR_WILDCARD:   "dnature/factory/zone1/pump/inverter+/sensor",
-  PUMP_HEALTH_WILDCARD:   "dnature/factory/zone1/pump/inverter+/health",
-  INVERTER_STATE:         (n: number) => `dnature/factory/zone1/pump/inverter${n}/state`,
-  BOOSTER_STATE:          (n: number) => `dnature/factory/zone1/pump/booster${n}/state`,
+  VALVE_STATE:           "dnature/factory/zone1/valve/status/SIM_VALVE_01",
+  INVERTER_STATE_GLOBAL: "dnature/factory/zone1/inverter/state",
+  PROCESS_PROGRESS:      "dnature/factory/zone1/inverter/progress",
+  INVERTER_ERROR:        "dnature/factory/zone1/inverter/error",
 }
 
 const INVERTER_COUNT = 6
@@ -166,7 +162,7 @@ export default function MobileFinalPage() {
   const [extractionPct, setExtractionPct] = useState(0)
   const [housingPct, setHousingPct] = useState(0)
 
-  const mqttRef = useRef<ReturnType<typeof import("./mqtt-ws-client")["getMqttClient"]> | null>(null)
+  const sseRef = useRef<EventSource | null>(null)
 
   // ── 시각 업데이트 ──────────────────────────────────────────
   useEffect(() => {
@@ -181,35 +177,7 @@ export default function MobileFinalPage() {
     return () => clearInterval(id)
   }, [])
 
-  // ── REST API 폴링 보조 ────────────────────────────────────
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const r = await fetch(`${API_BASE}/api/tank-data`, { cache: "no-store" })
-        if (!r.ok) return
-        const d = await r.json()
-        const tanks: { id: number; level?: number; pumpStatus?: string }[] = d.tanks ?? []
-        if (tanks.length === 0) return
-        setState((prev) => ({
-          ...prev,
-          inverters: prev.inverters.map((inv) => {
-            const t = tanks.find((x) => x.id === inv.id)
-            if (!t) return inv
-            return {
-              ...inv,
-              tankLevel:  t.level     ?? inv.tankLevel,
-              pumpStatus: t.pumpStatus ?? inv.pumpStatus,
-            }
-          }),
-        }))
-      } catch {
-        // 네트워크 오류 무시
-      }
-    }
-    poll()
-    const timer = setInterval(poll, POLL_MS)
-    return () => clearInterval(timer)
-  }, [])
+  // /api/tank-data 폴링 제거 — SSE로 실시간 수신
 
   // ── extraction-engine / job-engine 폴링 (3s) ────────────
   useEffect(() => {
@@ -391,60 +359,63 @@ export default function MobileFinalPage() {
     [handleValveState, handleInverterState, handleSensor, handleBoosterState]
   )
 
-  // ── MQTT 클라이언트 초기화 ────────────────────────────────
+  // ── SSE 연결 (서버 MQTT 브리지) ──────────────────────────
+  // MQTT 직접 연결 대신 서버의 /api/v1/events SSE 스트림 사용
+  // → devtunnel 외부 접근에서도 정상 동작
   useEffect(() => {
+    let es: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let mounted = true
 
-    import("./mqtt-ws-client").then(({ getMqttClient }) => {
+    const connect = () => {
       if (!mounted) return
-      const client = getMqttClient()
-      mqttRef.current = client
+      setState((prev) => ({ ...prev, mqttStatus: "connecting" }))
+      es = new EventSource(`${API_BASE}/api/v1/events`)
+      sseRef.current = es
 
-      const onStatus = (status: "connected" | "connecting" | "disconnected") => {
+      es.onopen = () => {
         if (!mounted) return
-        setState((prev) => ({ ...prev, mqttStatus: status }))
-
-        if (status === "connected") {
-          client.subscribe(TOPICS.VALVE_STATE)
-          for (let n = 1; n <= INVERTER_COUNT; n++) {
-            client.subscribe(TOPICS.INVERTER_STATE(n))
-          }
-          client.subscribe(TOPICS.PUMP_SENSOR_WILDCARD)
-          client.subscribe(TOPICS.PUMP_HEALTH_WILDCARD)
-          client.subscribe(TOPICS.BOOSTER_STATE(1))
-          client.subscribe(TOPICS.BOOSTER_STATE(2))
-          client.subscribe(TOPICS.INVERTER_STATE_GLOBAL)
-          client.subscribe(TOPICS.PROCESS_PROGRESS)
-          client.subscribe(TOPICS.INVERTER_ERROR)
-        }
+        setState((prev) => ({ ...prev, mqttStatus: "connected" }))
       }
 
-      client.onStatus(onStatus)
-      client.onMessage(handleMessage)
-
-      if (client.getStatus() === "disconnected") {
-        setState((prev) => ({ ...prev, mqttStatus: "connecting" }))
-        client.connect()
-      } else {
-        setState((prev) => ({ ...prev, mqttStatus: client.getStatus() }))
+      es.onmessage = (event) => {
+        if (!mounted) return
+        try {
+          const d = JSON.parse(event.data) as { topic?: string; payload?: string; type?: string }
+          if (d.type === "connected") return   // 초기 ping — 무시
+          if (!d.topic || d.payload === undefined) return
+          handleMessage(d.topic, d.payload)
+        } catch { /* JSON 파싱 실패 무시 */ }
       }
 
-      return () => {
-        mounted = false
-        client.offStatus(onStatus)
-        client.offMessage(handleMessage)
+      es.onerror = () => {
+        if (!mounted) return
+        setState((prev) => ({ ...prev, mqttStatus: "disconnected" }))
+        es?.close()
+        es = null
+        sseRef.current = null
+        // 5초 후 재연결
+        reconnectTimer = setTimeout(connect, 5000)
       }
-    })
+    }
 
-    return () => { mounted = false }
+    connect()
+
+    return () => {
+      mounted = false
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      es?.close()
+      sseRef.current = null
+    }
   }, [handleMessage])
 
-  // ── 긴급정지 ──────────────────────────────────────────────
+  // ── 긴급정지 (REST API) ────────────────────────────────────
   const handleEmergencyConfirm = useCallback(() => {
-    const client = mqttRef.current
-    if (client) {
-      client.publish(TOPICS.PROCESS_INPUT, JSON.stringify({ command: "sr" }))
-    }
+    fetch(`${API_BASE}/api/v1/commands/emergency-stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command: "sr" }),
+    }).catch(() => { /* 네트워크 오류 — toast로 처리하지 않음 */ })
     setEmergencyDone(true)
     setTimeout(() => setEmergencyDone(false), 4000)
   }, [])
