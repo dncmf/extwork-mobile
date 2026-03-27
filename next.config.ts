@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   allowedDevOrigins: [
     "*.jpe1.devtunnels.ms",
+    "10.0.1.2",
+    "100.99.148.98",
   ],
   async rewrites() {
     return [
